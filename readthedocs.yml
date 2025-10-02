@@ -6,13 +6,13 @@ sphinx:
   fail_on_warning: false
 
 python:
-  version: 3.10
+  version: "3.10"
   install:
     - requirements: requirements.txt
     - requirements: docs/requirements.txt
     - method: setuptools
       path: .
-      
+
 build:
   os: ubuntu-24.04
   tools:
