@@ -1,86 +1,37 @@
 # Copyright 2020 DeepMind Technologies Limited.
+# Licensed under the Apache License, Version 2.0
 
+"""Sphinx configuration for Jraph documentation."""
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+import os
+import sys
+import inspect
 
-# https://www.apache.org/licenses/LICENSE-2.0
+# -- BibTeX config ----------------------------------------------------------
+bibtex_bibfiles = []  # empty list if no .bib files yet
 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Configuration file for the Sphinx documentation builder."""
+# -- HTML static path -------------------------------------------------------
+os.makedirs(os.path.join(os.path.dirname(__file__), "_static"), exist_ok=True)
+html_static_path = ['_static']
 
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 # -- Path setup --------------------------------------------------------------
 
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
-# pylint: disable=g-bad-import-order
-# pylint: disable=g-import-not-at-top
-import inspect
-import os
-import sys
-import typing
-import jraph
-
-
-def _add_annotations_import(path):
-  """Appends a future annotations import to the file at the given path."""
-  with open(path) as f:
-    contents = f.read()
-  # If we run sphinx multiple times then we will append the future import
-  # multiple times too, so this check is here to prevent that.
-  if contents.startswith('from __future__ import annotations'):
-    return
-
-  assert contents.startswith('#'), (path, contents.split('\n')[0])
-  with open(path, 'w') as f:
-    # NOTE: This is subtle and not unit tested, we're prefixing the first line
-    # in each Python file with this future import. It is important to prefix
-    # not insert a newline such that source code locations are accurate (we link
-    # to GitHub). The assertion above ensures that the first line in the file is
-    # a comment so it is safe to prefix it.
-    f.write('from __future__ import annotations  ')
-    f.write(contents)
-
-
-def _recursive_add_annotations_import():
-  for path, _, files in os.walk('../jraph/'):
-    for file in files:
-      if file.endswith('.py'):
-        _add_annotations_import(os.path.abspath(os.path.join(path, file)))
-
-if 'READTHEDOCS' in os.environ:
-  _recursive_add_annotations_import()
-
-typing.get_type_hints = lambda obj, *unused: obj.__annotations__
 sys.path.insert(0, os.path.abspath('../'))
 sys.path.append(os.path.abspath('ext'))
 
 # -- Project information -----------------------------------------------------
 
 project = 'Jraph'
-copyright = '2021, Jraph Authors'  # pylint: disable=redefined-builtin
+copyright = '2021, Jraph Authors'
 author = 'Jraph Authors'
 
-# The full version, including alpha/beta/rc tags
-release = '0.0.1.dev'
-
+# Safe version info (do not import heavy packages)
+version = "0.0.0"
+release = "0.0.0"
 
 # -- General configuration ---------------------------------------------------
 
-# Add any Sphinx extension module names here, as strings. They can be
-# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
-# ones.
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
@@ -93,66 +44,56 @@ extensions = [
 ]
 
 pygments_style = 'sphinx'
-
-# Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
-
-# List of patterns, relative to source directory, that match files and
-# directories to ignore when looking for source files.
-# This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ['_build']
 
-# -- Options for autodoc -----------------------------------------------------
+# -- Autodoc configuration ---------------------------------------------------
 
 autodoc_default_options = {
     'member-order': 'bysource',
     'special-members': True,
 }
 
-# -- Options for HTML output -------------------------------------------------
+# Mock heavy dependencies to prevent import errors
+autodoc_mock_imports = [
+    "jax", "jaxlib", "dm_haiku", "flax", "optax", "jraph"
+]
 
-# The theme to use for HTML and HTML Help pages.  See the documentation for
-# a list of builtin themes.
-#
+# -- HTML output -------------------------------------------------------------
+
 html_theme = 'piccolo_theme'
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
-# -- Source code links -------------------------------------------------------
-
+# -- Linkcode support --------------------------------------------------------
 
 def linkcode_resolve(domain, info):
-  """Resolve a GitHub URL corresponding to Python object."""
-  if domain != 'py':
-    return None
+    """Resolve GitHub URL corresponding to a Python object."""
+    if domain != 'py':
+        return None
 
-  try:
-    mod = sys.modules[info['module']]
-  except ImportError:
-    return None
+    try:
+        mod = sys.modules.get(info['module'])
+        if mod is None:
+            return None
 
-  obj = mod
-  try:
-    for attr in info['fullname'].split('.'):
-      obj = getattr(obj, attr)
-  except AttributeError:
-    return None
-  else:
-    obj = inspect.unwrap(obj)
+        obj = mod
+        for attr in info['fullname'].split('.'):
+            obj = getattr(obj, attr)
+        obj = inspect.unwrap(obj)
 
-  try:
-    filename = inspect.getsourcefile(obj)
-  except TypeError:
-    return None
+        filename = inspect.getsourcefile(obj)
+        source, lineno = inspect.getsourcelines(obj)
+    except Exception:
+        return None
 
-  try:
-    source, lineno = inspect.getsourcelines(obj)
-  except OSError:
-    return None
+    try:
+        import jraph
+        base_path = os.path.dirname(jraph.__file__)
+    except ImportError:
+        base_path = ""
 
-  return 'https://github.com/deepmind/jraph/blob/master/jraph/%s#L%d#L%d' % (
-      os.path.relpath(filename, start=os.path.dirname(
-          jraph.__file__)), lineno, lineno + len(source) - 1)
+    return 'https://github.com/syedzayyan/jraphzzz/blob/master/jraph/%s#L%d#L%d' % (
+        os.path.relpath(filename, start=base_path),
+        lineno,
+        lineno + len(source) - 1
+    )

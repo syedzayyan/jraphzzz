@@ -2,3 +2,6 @@
 .vscode/
 datasets/
 .venv/
+_build/
+build/
+_static/
