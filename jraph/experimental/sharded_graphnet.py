@@ -19,7 +19,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as tree
 import jraph
-from jraph._src import graph as gn_graph
+from jraph.data import graph as gn_graph
 from jraph._src import utils
 import numpy as np
 
