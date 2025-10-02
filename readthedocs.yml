@@ -12,3 +12,8 @@ python:
     - requirements: docs/requirements.txt
     - method: setuptools
       path: .
+      
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.10"
