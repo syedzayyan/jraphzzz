@@ -29,7 +29,7 @@ myst_enable_extensions = [
 ]
 
 # Don't execute cells during the docs build (safe default for heavy ML libs).
-nb_execution_mode = "off"   # avoid executing heavy ML code during the build
+nb_execution_mode = "auto"   # avoid executing heavy ML code during the build
 
 # -- BibTeX config ----------------------------------------------------------
 bibtex_bibfiles = []  # empty list if no .bib files yet
@@ -46,13 +46,13 @@ sys.path.append(os.path.abspath('ext'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'Jraph'
+project = 'Jraphzzz'
 copyright = '2021, Jraph Authors'
 author = 'Jraph Authors'
 
 # Safe version info (do not import heavy packages)
-version = "0.0.0"
-release = "0.0.0"
+version = "0.7.0dev0"
+release = "0.7.0dev0"
 
 # -- General configuration ---------------------------------------------------
 
