@@ -1,16 +1,16 @@
 [tool.poetry]
-name = "jraph"
+name = "jraphzzz"
 # Poetry normally requires a static version string here. If you
 # prefer reading version from `jraph.__version__`, consider using
 # the poetry-dynamic-versioning plugin; otherwise replace "0.0.0"
 # with the package version you want to publish.
-version = "0.0.0"
-description = "Jraph: A library for Graph Neural Networks in Jax"
+version = "0.0.7dev0"
+description = "Jraphzzz: A library for Graph Neural Networks in Jax"
 readme = "README.md"
 license = "Apache-2.0"
 authors = ["DeepMind <jax_graph_nets@google.com>"]
-homepage = "https://github.com/deepmind/jraph"
-repository = "https://github.com/deepmind/jraph"
+homepage = "https://github.com/syedzayyan/jraphzzz"
+repository = "https://github.com/syedzayyan/jraphzzz"
 keywords = ["jax", "graph", "neural networks", "python", "machine learning"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -28,13 +28,9 @@ classifiers = [
 # Tell poetry which package(s) to include
 # If your package layout differs (e.g. source in src/), update accordingly.
 packages = [
-  { include = "jraph" }
+  { include = "jraphzzz" }
 ]
 
-[[tool.poetry.include]]
-# include package test data files so packaging contains them
-path = "jraph/ogb_examples/test_data"
-# this includes the whole directory tree; adjust path if needed
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
@@ -46,7 +42,6 @@ numpy = ">=1.26"
 [tool.poetry.extras]
 # Optional feature sets (installable via pip .[examples] or pip editable)
 examples = ["dm-haiku", "absl-py", "frozendict", "optax", "scipy", "flax"]
-ogb_examples = ["dm-haiku", "absl-py", "optax", "pandas", "dm-tree"]
 
 [tool.poetry.dev-dependencies]
 # development & testing tools

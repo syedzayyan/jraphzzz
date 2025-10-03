@@ -5,5 +5,5 @@ datasets/
 _build/
 build/
 _static/
-
+dist/
 runsphinx.sh
