@@ -18,9 +18,9 @@ from typing import Callable, List, NamedTuple, Optional
 import jax
 import jax.numpy as jnp
 import jax.tree_util as tree
-import jraph
-from jraph.data import graph as gn_graph
-from jraph._src import utils
+import jraphzzz
+from jraphzzz.data import graph as gn_graph
+from jraphzzz._src import utils
 import numpy as np
 
 
@@ -141,7 +141,7 @@ class ShardedEdgesGraphsTuple(NamedTuple):
 
 
 def graphs_tuple_to_broadcasted_sharded_graphs_tuple(
-    graphs_tuple: jraph.GraphsTuple,
+    graphs_tuple: jraphzzz.GraphsTuple,
     num_shards: int) -> ShardedEdgesGraphsTuple:
   """Converts a `GraphsTuple` to a `ShardedEdgesGraphsTuple` to use with `pmap`.
 
@@ -275,7 +275,7 @@ def broadcasted_sharded_graphs_tuple_to_graphs_tuple(sharded_graphs_tuple):
   unbroadcast = lambda y: tree.tree_map(lambda x: x[0], y)
   unshard = lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:])
   # TODO(jonathangodwin): check senders and receivers are consistent.
-  return jraph.GraphsTuple(
+  return jraphzzz.GraphsTuple(
       nodes=unbroadcast(sharded_graphs_tuple.nodes),
       edges=tree.tree_map(unshard, sharded_graphs_tuple.device_edges),
       n_node=sharded_graphs_tuple.n_node[0],
@@ -296,22 +296,22 @@ ShardedEdgeFeatures = gn_graph.ArrayTree
 AggregateShardedEdgesToGlobalsFn = Callable[
     [ShardedEdgeFeatures, jnp.ndarray, int, jnp.ndarray], gn_graph.ArrayTree]
 AggregateShardedEdgesToNodesFn = Callable[
-    [gn_graph.ArrayTree, jnp.ndarray, int, List[List[int]]], jraph.NodeFeatures]
+    [gn_graph.ArrayTree, jnp.ndarray, int, List[List[int]]], jraphzzz.NodeFeatures]
 
 
 # pylint: disable=invalid-name
 def ShardedEdgesGraphNetwork(
-    update_edge_fn: Optional[jraph.GNUpdateEdgeFn],
-    update_node_fn: Optional[jraph.GNUpdateNodeFn],
-    update_global_fn: Optional[jraph.GNUpdateGlobalFn] = None,
+    update_edge_fn: Optional[jraphzzz.GNUpdateEdgeFn],
+    update_node_fn: Optional[jraphzzz.GNUpdateNodeFn],
+    update_global_fn: Optional[jraphzzz.GNUpdateGlobalFn] = None,
     aggregate_edges_for_nodes_fn:
     AggregateShardedEdgesToNodesFn = sharded_segment_sum,
-    aggregate_nodes_for_globals_fn: jraph.AggregateNodesToGlobalsFn = jax.ops
+    aggregate_nodes_for_globals_fn: jraphzzz.AggregateNodesToGlobalsFn = jax.ops
     .segment_sum,
     aggregate_edges_for_globals_fn:
     AggregateShardedEdgesToGlobalsFn = sharded_segment_sum,
-    attention_logit_fn: Optional[jraph.AttentionLogitFn] = None,
-    attention_reduce_fn: Optional[jraph.AttentionReduceFn] = None,
+    attention_logit_fn: Optional[jraphzzz.AttentionLogitFn] = None,
+    attention_reduce_fn: Optional[jraphzzz.AttentionReduceFn] = None,
     num_shards: int = 1):
   """Returns a method that applies a GraphNetwork on a sharded GraphsTuple.
 

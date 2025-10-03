@@ -21,9 +21,9 @@ from absl.testing import parameterized
 import jax
 from jax.lib import xla_bridge
 import jax.tree_util as tree
-import jraph
-from jraph._src import utils
-from jraph.experimental import sharded_graphnet
+import jraphzzz
+from jraphzzz._src import utils
+from jraphzzz.experimental import sharded_graphnet
 import numpy as np
 
 
@@ -32,7 +32,7 @@ def _get_graphs_from_n_edge(n_edge):
   graphs = []
   for el in n_edge:
     graphs.append(
-        jraph.GraphsTuple(
+        jraphzzz.GraphsTuple(
             nodes=np.random.uniform(size=(128, 2)),
             edges=np.random.uniform(size=(el, 2)),
             senders=np.random.choice(128, el),
@@ -103,10 +103,10 @@ class ShardedGraphnetTest(parameterized.TestCase):
     devices = 3
     sharded_tuple = sharded_graphnet.graphs_tuple_to_broadcasted_sharded_graphs_tuple(
         in_tuple, devices)
-    update_fn = jraph.concatenated_args(lambda x: x)
+    update_fn = jraphzzz.concatenated_args(lambda x: x)
     sharded_gn = sharded_graphnet.ShardedEdgesGraphNetwork(
         update_fn, update_fn, update_fn, num_shards=devices)
-    gn = jraph.GraphNetwork(update_fn, update_fn, update_fn)
+    gn = jraphzzz.GraphNetwork(update_fn, update_fn, update_fn)
     sharded_out = jax.pmap(sharded_gn, axis_name='i')(sharded_tuple)
     expected_out = gn(in_tuple)
     reduced_out = sharded_graphnet.broadcasted_sharded_graphs_tuple_to_graphs_tuple(

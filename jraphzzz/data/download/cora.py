@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import jax.numpy as jnp
 
-from jraph import GraphsTuple
+from jraphzzz import GraphsTuple
 
 import os
 import urllib.request

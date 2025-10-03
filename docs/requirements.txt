@@ -1,7 +1,6 @@
 sphinx>=7.0
-sphinx-rtd-theme>=2.0
 sphinxcontrib-katex>=0.9
 sphinxcontrib-bibtex>=2.0
 sphinx-autodoc-typehints>=2.0
 nbsphinx>=0.9
-piccolo-theme>=0.20.0
+furo>=2025.09.25

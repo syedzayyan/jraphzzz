@@ -20,7 +20,7 @@ import jax
 from jax import lax
 import jax.numpy as jnp
 import jax.tree_util as tree
-from jraph.data import graph as gn_graph
+from jraphzzz.data import graph as gn_graph
 import numpy as np
 
 # As of 04/2020 pytype doesn't support recursive types.

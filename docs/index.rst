@@ -3,16 +3,18 @@
 Welcome to Jraph's documentation!
 =================================
 
-Jraph (pronounced "giraffe") is a lightweight library for working with graph
-neural networks in jax. It provides a data structure for graphs, a set of
+Jraphzzz (pronounced "giraffe is sleeping") is a lightweight library for working with graph
+neural networks in jax. It is a fork of the DeepMind jax library. 
+It provides a data structure for graphs, a set of
 utilites for working with graphs, and a 'zoo' of forkable graph neural network
 models.
 
 .. toctree::
   :caption: API Documentation:
-  :maxdepth: 1
+  :maxdepth: 2
 
-  api
+  data
+  examples
 
 Overview
 --------
@@ -41,7 +43,7 @@ installing JAX.
 
 Jraph can be installed directly from github using the following command:
 
-``pip install git+git://github.com/deepmind/jraph.git``
+``pip install git+git://github.com/syedzayyan/jraphzzz.git``
 
 Quick Start
 ===========

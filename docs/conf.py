@@ -7,6 +7,30 @@ import os
 import sys
 import inspect
 
+extensions = [
+    "myst_nb",            # supports MyST markdown + notebook cells
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+]
+
+# Allow .md files as source
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".md": "markdown",
+}
+
+# MyST / myst-nb settings
+myst_enable_extensions = [
+    "dollarmath",
+    "amsmath",
+    "deflist",
+    "html_admonition",
+    "html_image",
+]
+
+# Don't execute cells during the docs build (safe default for heavy ML libs).
+nb_execution_mode = "off"   # avoid executing heavy ML code during the build
+
 # -- BibTeX config ----------------------------------------------------------
 bibtex_bibfiles = []  # empty list if no .bib files yet
 
@@ -41,6 +65,7 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinxcontrib.bibtex',
     'sphinx_autodoc_typehints',
+    'myst_parser'
 ]
 
 pygments_style = 'sphinx'
@@ -61,7 +86,7 @@ autodoc_mock_imports = [
 
 # -- HTML output -------------------------------------------------------------
 
-html_theme = 'piccolo_theme'
+html_theme = 'furo'
 html_static_path = ['_static']
 
 # -- Linkcode support --------------------------------------------------------
@@ -87,8 +112,8 @@ def linkcode_resolve(domain, info):
         return None
 
     try:
-        import jraph
-        base_path = os.path.dirname(jraph.__file__)
+        import jraphzzz
+        base_path = os.path.dirname(jraphzzz.__file__)
     except ImportError:
         base_path = ""
 

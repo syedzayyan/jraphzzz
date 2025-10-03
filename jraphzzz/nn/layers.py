@@ -3,7 +3,7 @@ from typing import Callable, Optional
 import jax
 import jax.numpy as jnp
 import jax.tree_util as tree
-from jraph import utils
+from jraphzzz import utils
 from .types import (
     GATAttentionQueryFn,
     GATAttentionLogitFn,

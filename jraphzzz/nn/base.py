@@ -1,5 +1,5 @@
 from typing import Optional
-from jraph import utils
+from jraphzzz import utils
 from .types import (
     GNUpdateEdgeFn,
     GNUpdateNodeFn,
@@ -15,7 +15,7 @@ from .types import (
 
 import jax.numpy as jnp
 import jax.tree_util as tree
-from jraph.data import graph as gn_graph
+from jraphzzz.data import graph as gn_graph
 import functools
 
 

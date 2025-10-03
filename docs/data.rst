@@ -1,7 +1,7 @@
 Jraph API
 =========
 
-.. currentmodule:: jraph
+.. currentmodule:: jraphzzz
 
 GraphsTuple
 -----------
@@ -46,22 +46,3 @@ Misc Utilities
 -----------------
 
 .. autofunction:: concatenated_args
-
-Models
-======
-
-.. autofunction:: GraphNetwork
-
-.. autofunction:: InteractionNetwork
-
-.. autofunction:: GraphMapFeatures
-
-.. autofunction:: RelationNetwork
-
-.. autofunction:: DeepSets
-
-.. autofunction:: GraphNetGAT
-
-.. autofunction:: GAT
-
-.. autofunction:: GraphConvolution

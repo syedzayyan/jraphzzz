@@ -22,8 +22,8 @@ import jax
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 import jax.tree_util as tree
-from jraph.data import graph
-from jraph import utils
+from jraphzzz.data import graph
+from jraphzzz import utils
 import numpy as np
 
 

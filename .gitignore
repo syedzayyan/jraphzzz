@@ -5,3 +5,5 @@ datasets/
 _build/
 build/
 _static/
+
+runsphinx.sh
