@@ -1,5 +1,5 @@
 from typing import Optional
-from jraphzzz import utils
+from jraphzzz.utils import utils
 from .types import (
     GNUpdateEdgeFn,
     GNUpdateNodeFn,

@@ -1,4 +1,4 @@
-### A basic GCN
+# Basic GCN on the Cora Dataset
 
 ```{code-cell}
 import jraphzzz
@@ -14,6 +14,10 @@ import flax.linen as nn
 import optax
 from flax.training import train_state
 ```
+
+You can find a description of this dataset in Pytorch-Geometric documentation. 
+Because that's where jraphzzz function is stolen fom.
+In case of split='full', all nodes except those in the validation and test sets will be used for training.
 
 ```{code-cell}
 ds = jraphzzz.Planetoid(root='datasets', name='Cora', split='public')
@@ -135,4 +139,8 @@ accuracy_list = []
 trained_model_state, train_acc, val_acc = train_model(model_state, graph, graph_labels, one_hot_labels, graph_train_mask, graph_val_mask, num_epochs=200)
 accuracy_list.append(['Cora', 'train', float(train_acc)])
 accuracy_list.append(['Cora', 'valid', float(val_acc)])
+```
+
+```{code-cell}
+
 ```

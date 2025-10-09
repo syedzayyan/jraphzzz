@@ -46,3 +46,8 @@ Misc Utilities
 -----------------
 
 .. autofunction:: concatenated_args
+
+Planetoid
+-----------------
+
+.. autofunction:: Planetoid

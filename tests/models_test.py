@@ -21,8 +21,8 @@ import jax.numpy as jnp
 import jax.tree_util as tree
 
 from jraphzzz.data import graph
-from jraphzzz._src import models
-from jraphzzz._src import utils
+from jraphzzz import models
+from jraphzzz import utils
 import numpy as np
 
 

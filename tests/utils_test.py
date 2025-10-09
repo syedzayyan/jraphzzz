@@ -23,7 +23,7 @@ from jax.lib import xla_bridge
 import jax.numpy as jnp
 import jax.tree_util as tree
 from jraphzzz.data import graph
-from jraphzzz import utils
+from jraphzzz.utils import utils
 import numpy as np
 
 

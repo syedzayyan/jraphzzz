@@ -1151,3 +1151,9 @@ def sparse_matrix_to_graphs_tuple(
       globals=None,
       n_node=n_node,
       n_edge=n_edge)
+
+def num_nodes(senders: jnp.ndarray, receivers: jnp.ndarray, num_nodes: Optional[int] = None):
+    if num_nodes is None:
+        return jnp.max(jnp.concatenate([senders, receivers])) + 1
+    else:
+        return num_nodes

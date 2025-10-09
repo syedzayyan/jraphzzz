@@ -97,10 +97,11 @@ class GraphsTuple(NamedTuple):
 
 
   """
-  nodes: Optional[ArrayTree]
-  edges: Optional[ArrayTree]
+  senders: Optional[jnp.ndarray]
   receivers: Optional[jnp.ndarray]  # with integer dtype
-  senders: Optional[jnp.ndarray]  # with integer dtype
   globals: Optional[ArrayTree]
   n_node: jnp.ndarray  # with integer dtype
   n_edge: jnp.ndarray   # with integer dtype
+  edge_weight: Optional[ArrayTree] = None
+  nodes: Optional[ArrayTree] = None
+  edges: Optional[ArrayTree] = None

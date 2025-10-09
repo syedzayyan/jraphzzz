@@ -7,27 +7,6 @@ import os
 import sys
 import inspect
 
-extensions = [
-    "myst_nb",            # supports MyST markdown + notebook cells
-    "sphinx.ext.autodoc",
-    "sphinx.ext.napoleon",
-]
-
-# Allow .md files as source
-source_suffix = {
-    ".rst": "restructuredtext",
-    ".md": "markdown",
-}
-
-# MyST / myst-nb settings
-myst_enable_extensions = [
-    "dollarmath",
-    "amsmath",
-    "deflist",
-    "html_admonition",
-    "html_image",
-]
-
 # Don't execute cells during the docs build (safe default for heavy ML libs).
 nb_execution_mode = "auto"   # avoid executing heavy ML code during the build
 
@@ -65,8 +44,12 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinxcontrib.bibtex',
     'sphinx_autodoc_typehints',
-    'myst_parser'
+    'myst_nb',
 ]
+
+nb_custom_formats = {
+    ".md": ["jupytext.reads", {"fmt": "mystnb"}],
+}
 
 pygments_style = 'sphinx'
 templates_path = ['_templates']

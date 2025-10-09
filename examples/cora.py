@@ -1,3 +1,6 @@
+# %% [markdown]
+# # Basic GCN on the Cora Dataset
+
 # %%
 import jraphzzz
 import jax
@@ -9,6 +12,10 @@ import flax.linen as nn
 # %%
 import optax
 from flax.training import train_state
+# %% [markdown]
+# You can find a description of this dataset in Pytorch-Geometric documentation. 
+# Because that's where jraphzzz function is stolen fom.
+# In case of split='full', all nodes except those in the validation and test sets will be used for training.
 
 # %%
 ds = jraphzzz.Planetoid(root='datasets', name='Cora', split='public')
