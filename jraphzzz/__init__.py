@@ -41,41 +41,41 @@ from jraphzzz.nn.types import InteractionUpdateEdgeFn
 from jraphzzz.nn.types import InteractionUpdateNodeFn
 from jraphzzz.nn.types import NodeFeatures
 # from jraph.nn.types import RelationNetwork
-from jraphzzz.utils import ArrayTree
-from jraphzzz.utils import batch
-from jraphzzz.utils import batch_np
-from jraphzzz.utils import concatenated_args
-from jraphzzz.utils import dynamically_batch
-from jraphzzz.utils import get_edge_padding_mask
-from jraphzzz.utils import get_fully_connected_graph
-from jraphzzz.utils import get_graph_padding_mask
-from jraphzzz.utils import get_node_padding_mask
-from jraphzzz.utils import get_number_of_padding_with_graphs_edges
-from jraphzzz.utils import get_number_of_padding_with_graphs_graphs
-from jraphzzz.utils import get_number_of_padding_with_graphs_nodes
-from jraphzzz.utils import pad_with_graphs
-from jraphzzz.utils import partition_softmax
-from jraphzzz.utils import segment_max
-from jraphzzz.utils import segment_max_or_constant
-from jraphzzz.utils import segment_mean
-from jraphzzz.utils import segment_min
-from jraphzzz.utils import segment_min_or_constant
-from jraphzzz.utils import segment_normalize
-from jraphzzz.utils import segment_softmax
-from jraphzzz.utils import segment_sum
-from jraphzzz.utils import segment_variance
-from jraphzzz.utils import sparse_matrix_to_graphs_tuple
-from jraphzzz.utils import unbatch
-from jraphzzz.utils import unbatch_np
-from jraphzzz.utils import unpad_with_graphs
-from jraphzzz.utils import with_zero_out_padding_outputs
-from jraphzzz.utils import zero_out_padding
+from jraphzzz.utils.utils import ArrayTree
+from jraphzzz.utils.utils import batch
+from jraphzzz.utils.utils import batch_np
+from jraphzzz.utils.utils import concatenated_args
+from jraphzzz.utils.utils import dynamically_batch
+from jraphzzz.utils.utils import get_edge_padding_mask
+from jraphzzz.utils.utils import get_fully_connected_graph
+from jraphzzz.utils.utils import get_graph_padding_mask
+from jraphzzz.utils.utils import get_node_padding_mask
+from jraphzzz.utils.utils import get_number_of_padding_with_graphs_edges
+from jraphzzz.utils.utils import get_number_of_padding_with_graphs_graphs
+from jraphzzz.utils.utils import get_number_of_padding_with_graphs_nodes
+from jraphzzz.utils.utils import pad_with_graphs
+from jraphzzz.utils.utils import partition_softmax
+from jraphzzz.utils.utils import segment_max
+from jraphzzz.utils.utils import segment_max_or_constant
+from jraphzzz.utils.utils import segment_mean
+from jraphzzz.utils.utils import segment_min
+from jraphzzz.utils.utils import segment_min_or_constant
+from jraphzzz.utils.utils import segment_normalize
+from jraphzzz.utils.utils import segment_softmax
+from jraphzzz.utils.utils import segment_sum
+from jraphzzz.utils.utils import segment_variance
+from jraphzzz.utils.utils import sparse_matrix_to_graphs_tuple
+from jraphzzz.utils.utils import unbatch
+from jraphzzz.utils.utils import unbatch_np
+from jraphzzz.utils.utils import unpad_with_graphs
+from jraphzzz.utils.utils import with_zero_out_padding_outputs
+from jraphzzz.utils.utils import zero_out_padding
 
 
 from jraphzzz.data.download.cora import Planetoid
 
 
-__version__ = "0.0.6.dev0"
+__version__ = "0.0.7.dev0"
 
 __all__ = ("ArrayTree", "DeepSets", "GraphConvolution", "GraphMapFeatures",
            "InteractionNetwork", "RelationNetwork", "GraphNetGAT", "GAT",
@@ -97,18 +97,3 @@ __all__ = ("ArrayTree", "DeepSets", "GraphConvolution", "GraphMapFeatures",
            "get_fully_connected_graph", "dynamically_batch",
            "with_zero_out_padding_outputs", "zero_out_padding",
            "sparse_matrix_to_graphs_tuple", "Planetoid")
-
-#  _________________________________________
-# / Please don't use symbols in `_src` they \
-# \ are not part of the Jraph public API.    /
-#  -----------------------------------------
-#         \   ^__^
-#          \  (oo)\_______
-#             (__)\       )\/\
-#                 ||----w |
-#                 ||     ||
-#
-try:
-  del _src  # pylint: disable=undefined-variable
-except NameError:
-  pass
