@@ -71,6 +71,8 @@ from jraphzzz.utils.utils import unpad_with_graphs
 from jraphzzz.utils.utils import with_zero_out_padding_outputs
 from jraphzzz.utils.utils import zero_out_padding
 
+from jraphzzz.utils.laplacian import get_laplacian
+from jraphzzz.utils.laplacian import get_laplacian_matrix
 
 from jraphzzz.data.download.cora import Planetoid
 
