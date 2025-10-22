@@ -2,13 +2,14 @@ import jax.numpy as jnp
 from typing import Optional, Tuple
 from .utils import num_nodes as _num_nodes
 
+
 def add_self_loops(
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-        edge_attr: jnp.ndarray = None,
-        fill_value = None,
-        num_nodes: Optional[int] = None,
-        ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    senders: jnp.ndarray,
+    receivers: jnp.ndarray,
+    edge_attr: jnp.ndarray = None,
+    fill_value=None,
+    num_nodes: Optional[int] = None,
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Adds self edges. Assumes self edges are not in the graph yet.
 
     Args:
@@ -29,7 +30,7 @@ def add_self_loops(
 
     if edge_attr is not None:
         if fill_value is None:
-            shape = (N, ) + edge_attr.shape[1:]
+            shape = (N,) + edge_attr.shape[1:]
             loop_attr = jnp.full(shape, 1.0)
         elif isinstance(fill_value, (int, float)):
             shape = (N,) + edge_attr.shape[1:]
@@ -41,8 +42,10 @@ def add_self_loops(
             sizes = [N] + [1] * (edge_attr.ndim - 1)
             loop_attr = jnp.tile(loop_attr, sizes)
         elif isinstance(fill_value, str):
-            #TODO: Implement scatter-like function or use _segment_update from jax.ops
-            raise NotImplementedError("add_self_loops does not yet support string fill values.")
+            # TODO: Implement scatter-like function or use _segment_update from jax.ops
+            raise NotImplementedError(
+                "add_self_loops does not yet support string fill values."
+            )
         else:
             raise AttributeError("Provided 'fill_value' values are not supported.")
 
@@ -52,13 +55,17 @@ def add_self_loops(
     receivers = jnp.concatenate((receivers, loop_index[1]), axis=0)
     return senders, receivers, edge_attr
 
-def remove_self_loops(senders: jnp.ndarray, receivers: jnp.ndarray, edge_weight: jnp.ndarray):
+
+def remove_self_loops(
+    senders: jnp.ndarray, receivers: jnp.ndarray, edge_weight: jnp.ndarray
+):
     """
     Removes self loops from a graph.
     """
     mask = senders != receivers
-    senders = senders[mask]
-    receivers = receivers[mask]
+    senders = jnp.take(senders, mask, axis=0)
+    receivers = jnp.take(receivers, mask, axis=0)
     if edge_weight is not None:
-        edge_weight = edge_weight[mask]
+        if edge_weight.ndim != 0:
+            edge_weight = jnp.take(edge_weight, mask, axis=0)
     return senders, receivers, edge_weight

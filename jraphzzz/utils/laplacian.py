@@ -46,7 +46,7 @@ def get_laplacian_matrix(
     if edge_weight is None:
         edge_weight = jnp.ones(senders.shape[0])
 
-    N = _num_nodes(senders, receivers, num_nodes)
+    N = num_nodes
 
     adj = jnp.zeros((N, N), dtype=jnp.float32)
     adj = adj.at[(senders, receivers)].set(edge_weight)
@@ -123,17 +123,20 @@ def get_laplacian(
         deg_inv_sqrt = jnp.power(deg, -0.5)
         deg_inv_sqrt = jnp.where(jnp.isinf(deg_inv_sqrt), 0, deg_inv_sqrt)
         edge_weight = deg_inv_sqrt[senders] * edge_weight * deg_inv_sqrt[receivers]
-        senders, receivers, edge_weight = add_self_loops(senders, receivers, -edge_weight,
-                                                         fill_value=1.0, num_nodes=N)
+        senders, receivers, edge_weight = add_self_loops(
+            senders, receivers, -edge_weight, fill_value=1.0, num_nodes=N
+        )
     elif normalization == "rw":
         deg_inv = 1.0 / deg
         deg_inv = jnp.where(jnp.isinf(deg_inv), 0, deg_inv)
         edge_weight = deg_inv[senders] * edge_weight
 
-        senders, receivers, edge_weight = add_self_loops(senders, receivers, -edge_weight,
-                                                            fill_value=1.0, num_nodes=N)
+        senders, receivers, edge_weight = add_self_loops(
+            senders, receivers, -edge_weight, fill_value=1.0, num_nodes=N
+        )
 
     return senders, receivers, edge_weight
+
 
 # This function was directly adapted from GraphGPS repository:
 # https://github.com/rampasek/GraphGPS
@@ -151,7 +154,7 @@ def eigv_normalizer(eigenvectors, eigenvalues, normalization="L2", eps=1e-12):
     Returns:
         :obj:`jnp.ndarray`: Normalized eigenvectors.
     """
-    #eigenvalues = jnp.expand_dims(eigenvalues, axis=0)
+    # eigenvalues = jnp.expand_dims(eigenvalues, axis=0)
 
     if normalization is None:
         return eigenvectors
@@ -173,9 +176,11 @@ def eigv_normalizer(eigenvectors, eigenvalues, normalization="L2", eps=1e-12):
         eigenval_denom = eigenval_denom.at[eigenval_denom < eps].set(1)
         denom = eigenval_denom
     elif normalization == "wavelength-soft":
-        denom = jax.nn.softmax(jnp.abs(eigenvectors), axis=0)* jnp.abs(eigenvectors).sum(axis=0, keepdims=True)
+        denom = jax.nn.softmax(jnp.abs(eigenvectors), axis=0) * jnp.abs(
+            eigenvectors
+        ).sum(axis=0, keepdims=True)
         eigval_denom = jnp.sqrt(eigenvalues)
-        eigval_denom= eigval_denom.at[eigval_denom < eps].set(1)
+        eigval_denom = eigval_denom.at[eigval_denom < eps].set(1)
         denom = denom * eigval_denom
     else:
         raise ValueError("Unknown normalization: {}".format(normalization))
@@ -184,14 +189,15 @@ def eigv_normalizer(eigenvectors, eigenvalues, normalization="L2", eps=1e-12):
     eigenvectors = eigenvectors / denom
     return eigenvectors
 
+
 def eigv_laplacian(
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-        edge_weight: jnp.ndarray = None,
-        normalization: Optional[str] = None,
-        num_nodes: Optional[int] = None,
-        k: int = 5,
-        eigv_norm: Optional[str] = 'L2',
+    senders: jnp.ndarray,
+    receivers: jnp.ndarray,
+    edge_weight: jnp.ndarray = None,
+    normalization: Optional[str] = None,
+    num_nodes: Optional[int] = None,
+    k: int = 5,
+    eigv_norm: Optional[str] = "L2",
 ):
     r"""Returns the top-k eigenvectors of the Laplacian of a graph.
 
@@ -217,8 +223,7 @@ def eigv_laplacian(
         :obj:`(jnp.ndarray)`:  (num_nodes, k) of eigenvector values per node.
     """
 
-    L = get_laplacian_matrix(
-        senders, receivers, edge_weight, normalization, num_nodes)
+    L = get_laplacian_matrix(senders, receivers, edge_weight, normalization, num_nodes)
     evals, evects = jnp.linalg.eigh(L)
 
     N = len(evals)
@@ -232,9 +237,9 @@ def eigv_laplacian(
         # pad on last dimension with nan
         npad = [(0, 0)] * evects.ndim
         npad[-1] = (0, k - N)
-        evects = jnp.pad(evects, npad, 'constant', constant_values=jnp.nan)
+        evects = jnp.pad(evects, npad, "constant", constant_values=jnp.nan)
         npad = [(0, 0)] * evals.ndim
         npad[-1] = (0, k - N)
-        evals = jnp.pad(evals, npad, 'constant', constant_values=jnp.nan)
+        evals = jnp.pad(evals, npad, "constant", constant_values=jnp.nan)
 
     return evals, evects

@@ -2,7 +2,8 @@ from jraphzzz.data.graph import GraphsTuple
 import jax.numpy as jnp
 import jax.lax as lax
 
-class LineGraph():
+
+class LineGraph:
     r"""Converts a graph to its corresponding line-graph
     (functional name: :obj:`line_graph`).
 
@@ -26,6 +27,7 @@ class LineGraph():
         force_directed (bool, optional): If set to :obj:`True`, the graph will
             be always treated as a directed graph. (default: :obj:`False`)
     """
+
     def __init__(self, force_directed: bool = False) -> None:
         self.force_directed = force_directed
 
@@ -40,12 +42,13 @@ class LineGraph():
         if self.force_directed or data.is_directed():
             i = jnp.arange(row.size(0), dtype=jnp.long, device=row.device)
 
-            count = lax.scatter(torch.ones_like(row), row, dim=0,
-                            dim_size=data.num_nodes, reduce='sum')
+            count = lax.scatter(
+                torch.ones_like(row), row, dim=0, dim_size=data.num_nodes, reduce="sum"
+            )
             ptr = lax.cumsum(count)
 
-            cols = [i[ptr[col[j]]:ptr[col[j] + 1]] for j in range(col.size(0))]
-            rows = [row.new_full((c.numel(), ), j) for j, c in enumerate(cols)]
+            cols = [i[ptr[col[j]] : ptr[col[j] + 1]] for j in range(col.size(0))]
+            rows = [row.new_full((c.numel(),), j) for j, c in enumerate(cols)]
 
             row, col = torch.cat(rows, dim=0), torch.cat(cols, dim=0)
 
@@ -60,17 +63,17 @@ class LineGraph():
             i = torch.arange(row.size(0), dtype=torch.long, device=row.device)
 
             (row, col), i = coalesce(
-                torch.stack([
-                    torch.cat([row, col], dim=0),
-                    torch.cat([col, row], dim=0)
-                ], dim=0),
+                torch.stack(
+                    [torch.cat([row, col], dim=0), torch.cat([col, row], dim=0)], dim=0
+                ),
                 torch.cat([i, i], dim=0),
                 N,
             )
 
             # Compute new edge indices according to `i`.
-            count = scatter(torch.ones_like(row), row, dim=0,
-                            dim_size=data.num_nodes, reduce='sum')
+            count = scatter(
+                torch.ones_like(row), row, dim=0, dim_size=data.num_nodes, reduce="sum"
+            )
             joints = list(torch.split(i, count.tolist()))
 
             def generate_grid(x: Tensor) -> Tensor:
@@ -85,7 +88,7 @@ class LineGraph():
             joint = coalesce(joint, num_nodes=N)
 
             if edge_attr is not None:
-                data.x = scatter(edge_attr, i, dim=0, dim_size=N, reduce='sum')
+                data.x = scatter(edge_attr, i, dim=0, dim_size=N, reduce="sum")
             data.edge_index = joint
             data.num_nodes = edge_index.size(1) // 2
 

@@ -1,16 +1,13 @@
-[tool.poetry]
+[project]
 name = "jraphzzz"
-# Poetry normally requires a static version string here. If you
-# prefer reading version from `jraph.__version__`, consider using
-# the poetry-dynamic-versioning plugin; otherwise replace "0.0.0"
-# with the package version you want to publish.
 version = "0.0.7dev0"
 description = "Jraphzzz: A library for Graph Neural Networks in Jax"
 readme = "README.md"
-license = "Apache-2.0"
-authors = ["DeepMind <jax_graph_nets@google.com>"]
-homepage = "https://github.com/syedzayyan/jraphzzz"
-repository = "https://github.com/syedzayyan/jraphzzz"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "DeepMind", email = "jax_graph_nets@google.com" }
+]
+requires-python = ">=3.10,<4.0"
 keywords = ["jax", "graph", "neural networks", "python", "machine learning"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -19,37 +16,29 @@ classifiers = [
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
-  "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Software Development :: Libraries :: Python Modules"
 ]
-
-# Tell poetry which package(s) to include
-# If your package layout differs (e.g. source in src/), update accordingly.
-packages = [
-  { include = "jraphzzz" }
+dependencies = [
+  "jax>=0.6.0",
+  "jaxlib>=0.6.0",
+  "numpy>=1.26"
 ]
 
+[project.optional-dependencies]
+examples = ["frozendict", "optax", "scipy", "flax"]
+dev = [
+  "pytest>=8.4",
+  "setuptools>=61.0",
+  "wheel>=0.38",
+  "build>=0.10"
+]
 
-[tool.poetry.dependencies]
-python = ">=3.10,<4.0"
-# runtime dependencies (modern minimums — JAX 0.6 series)
-jax = ">=0.6.0"
-jaxlib = ">=0.6.0"
-numpy = ">=1.26"
-
-[tool.poetry.extras]
-# Optional feature sets (installable via pip .[examples] or pip editable)
-examples = ["dm-haiku", "absl-py", "frozendict", "optax", "scipy", "flax"]
-
-[tool.poetry.dev-dependencies]
-# development & testing tools
-pytest = ">=8.4"
-setuptools = ">=61.0"   # included per your earlier request (useful for some dev workflows)
-wheel = ">=0.38"
-build = ">=0.10"
+[project.urls]
+Homepage = "https://github.com/syedzayyan/jraphzzz"
+Repository = "https://github.com/syedzayyan/jraphzzz"
 
 [build-system]
-requires = ["poetry-core>=1.5.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"

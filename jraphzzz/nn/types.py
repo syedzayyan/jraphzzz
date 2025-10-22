@@ -19,7 +19,7 @@ import jax.numpy as jnp
 
 # As of 04/2020 pytype doesn't support recursive types.
 # pytype: disable=not-supported-yet
-ArrayTree = Union[jnp.ndarray, Iterable['ArrayTree'], Mapping[Any, 'ArrayTree']]
+ArrayTree = Union[jnp.ndarray, Iterable["ArrayTree"], Mapping[Any, "ArrayTree"]]
 
 # All features will be an ArrayTree.
 NodeFeatures = EdgeFeatures = SenderFeatures = ReceiverFeatures = Globals = ArrayTree
@@ -27,26 +27,24 @@ NodeFeatures = EdgeFeatures = SenderFeatures = ReceiverFeatures = Globals = Arra
 # Signature:
 # (edges of each node to be aggregated, segment ids, number of segments) ->
 # aggregated edges
-AggregateEdgesToNodesFn = Callable[
-    [EdgeFeatures, jnp.ndarray, int], NodeFeatures]
+AggregateEdgesToNodesFn = Callable[[EdgeFeatures, jnp.ndarray, int], NodeFeatures]
 
 # Signature:
 # (nodes of each graph to be aggregated, segment ids, number of segments) ->
 # aggregated nodes
-AggregateNodesToGlobalsFn = Callable[[NodeFeatures, jnp.ndarray, int],
-                                     Globals]
+AggregateNodesToGlobalsFn = Callable[[NodeFeatures, jnp.ndarray, int], Globals]
 
 # Signature:
 # (edges of each graph to be aggregated, segment ids, number of segments) ->
 # aggregated edges
-AggregateEdgesToGlobalsFn = Callable[[EdgeFeatures, jnp.ndarray, int],
-                                     Globals]
+AggregateEdgesToGlobalsFn = Callable[[EdgeFeatures, jnp.ndarray, int], Globals]
 
 # Signature:
 # (edge features, sender node features, receiver node features, globals) ->
 # attention weights
 AttentionLogitFn = Callable[
-    [EdgeFeatures, SenderFeatures, ReceiverFeatures, Globals], ArrayTree]
+    [EdgeFeatures, SenderFeatures, ReceiverFeatures, Globals], ArrayTree
+]
 
 # Signature:
 # (edge features, weights) -> edge features for node update
@@ -61,39 +59,37 @@ AttentionNormalizeFn = Callable[[EdgeFeatures, jnp.ndarray, int], EdgeFeatures]
 # (edge features, sender node features, receiver node features, globals) ->
 # updated edge features
 GNUpdateEdgeFn = Callable[
-    [EdgeFeatures, SenderFeatures, ReceiverFeatures, Globals], EdgeFeatures]
+    [EdgeFeatures, SenderFeatures, ReceiverFeatures, Globals], EdgeFeatures
+]
 
 # Signature:
 # (node features, outgoing edge features, incoming edge features,
 #  globals) -> updated node features
 GNUpdateNodeFn = Callable[
-    [NodeFeatures, SenderFeatures, ReceiverFeatures, Globals], NodeFeatures]
+    [NodeFeatures, SenderFeatures, ReceiverFeatures, Globals], NodeFeatures
+]
 
 GNUpdateGlobalFn = Callable[[NodeFeatures, EdgeFeatures, Globals], Globals]
 
 
-
-
 GATAttentionQueryFn = Callable[[NodeFeatures], NodeFeatures]
 GATAttentionLogitFn = Callable[
-    [SenderFeatures, ReceiverFeatures, EdgeFeatures], EdgeFeatures]
+    [SenderFeatures, ReceiverFeatures, EdgeFeatures], EdgeFeatures
+]
 GATNodeUpdateFn = Callable[[NodeFeatures], NodeFeatures]
 
 
-
-
 InteractionUpdateNodeFn = Callable[
-    [NodeFeatures,
-     Mapping[str, SenderFeatures],
-     Mapping[str, ReceiverFeatures]],
-    NodeFeatures]
+    [NodeFeatures, Mapping[str, SenderFeatures], Mapping[str, ReceiverFeatures]],
+    NodeFeatures,
+]
 InteractionUpdateNodeFnNoSentEdges = Callable[
-    [NodeFeatures,
-     Mapping[str, ReceiverFeatures]],
-    NodeFeatures]
+    [NodeFeatures, Mapping[str, ReceiverFeatures]], NodeFeatures
+]
 
 InteractionUpdateEdgeFn = Callable[
-    [EdgeFeatures, SenderFeatures, ReceiverFeatures], EdgeFeatures]
+    [EdgeFeatures, SenderFeatures, ReceiverFeatures], EdgeFeatures
+]
 
 
 # Signature:

@@ -11,10 +11,10 @@ def coalesce(
     receivers: jnp.ndarray,
     edge_attr: Optional[jnp.ndarray] = None,
     num_nodes: Optional[int] = None,
-    #reduce: str = "add", # TODO: add 'scatter' method and include this parameter
+    # reduce: str = "add", # TODO: add 'scatter' method and include this parameter
     is_sorted: bool = False,
     sort_by_row: bool = True,
-): #-> Union[Tuple[jnp.ndarray, jnp.ndarray], Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+):  # -> Union[Tuple[jnp.ndarray, jnp.ndarray], Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     r"""Returns the unique edges in a graph.
 
     Args:
@@ -45,7 +45,7 @@ def coalesce(
     idx = idx.at[1:].set(edge_index[1 - int(sort_by_row)])
     idx = idx.at[1:].set(idx[1:] * num_nodes + edge_index[int(sort_by_row)])
     if not is_sorted:
-        #idx = jnp.sort(idx)
+        # idx = jnp.sort(idx)
         perm = jnp.argsort(idx[1:])
         aux = idx[1:][perm]
         idx = idx.at[1:].set(aux)
@@ -66,5 +66,7 @@ def coalesce(
     dim_size = edge_index.shape[1]
     idx = jnp.arange(num_edges)
     idx -= jnp.cumsum(jnp.logical_not(mask), axis=0)
-    edge_attr = segment_sum(edge_attr, idx, num_segments=dim_size) # Equivalent to scatter add
+    edge_attr = segment_sum(
+        edge_attr, idx, num_segments=dim_size
+    )  # Equivalent to scatter add
     return edge_index[0], edge_index[1], edge_attr

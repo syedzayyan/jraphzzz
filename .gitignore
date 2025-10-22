@@ -7,3 +7,7 @@ build/
 _static/
 dist/
 runsphinx.sh
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+*.ipynb

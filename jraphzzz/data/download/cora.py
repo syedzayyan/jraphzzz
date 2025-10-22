@@ -14,6 +14,7 @@ import urllib.request
 # from jraph import GraphsTuple
 # and read_planetoid_data(...) defined in this module
 
+
 def read_file(folder: str, prefix: str, name: str):
     """
     Load one Planetoid file. Files are pickled Python objects except
@@ -58,7 +59,9 @@ def index_to_mask(index: np.ndarray, size: int) -> np.ndarray:
     return mask
 
 
-def edge_index_from_dict(graph_dict: Dict[int, List[int]], num_nodes: int) -> np.ndarray:
+def edge_index_from_dict(
+    graph_dict: Dict[int, List[int]], num_nodes: int
+) -> np.ndarray:
     """
     Convert adjacency dict {node: [nbrs,...], ...} to edge_index shape (2, E),
     where row 0 = senders (sources), row 1 = receivers (targets).
@@ -75,8 +78,9 @@ def edge_index_from_dict(graph_dict: Dict[int, List[int]], num_nodes: int) -> np
     return np.vstack([np.array(rows, dtype=np.int64), np.array(cols, dtype=np.int64)])
 
 
-def read_planetoid_data(folder: str, prefix: str
-                       ) -> Tuple[GraphsTuple, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def read_planetoid_data(
+    folder: str, prefix: str
+) -> Tuple[GraphsTuple, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
     Load Planetoid dataset and return:
       - GraphsTuple (nodes, edges=None, receivers, senders, globals=None, n_node, n_edge)
@@ -88,7 +92,7 @@ def read_planetoid_data(folder: str, prefix: str
     This mirrors the original PyG loader behavior (including citeseer/nell special handling)
     but uses numpy + jax.numpy (no torch).
     """
-    names = ['x', 'tx', 'allx', 'y', 'ty', 'ally', 'graph', 'test.index']
+    names = ["x", "tx", "allx", "y", "ty", "ally", "graph", "test.index"]
     items = [read_file(folder, prefix, name) for name in names]
     x_train_file, tx, allx, y_train_file, ty, ally, graph, test_index = items
 
@@ -120,7 +124,7 @@ def read_planetoid_data(folder: str, prefix: str
     prefix_l = prefix.lower()
 
     # CITSEER: some test nodes are isolated; expand tx/ty to full contiguous range
-    if prefix_l == 'citeseer':
+    if prefix_l == "citeseer":
         len_test_indices = int(test_index.max() - test_index.min()) + 1
         tx_ext = np.zeros((len_test_indices, tx.shape[1]), dtype=tx.dtype)
         tx_ext[sorted_test_index - test_index.min(), :] = tx
@@ -129,11 +133,13 @@ def read_planetoid_data(folder: str, prefix: str
         tx, ty = tx_ext, ty_ext
 
     # NELL special-case: mirror original behavior (dense-friendly handling here)
-    if prefix_l == 'nell.0.001':
+    if prefix_l == "nell.0.001":
         total_nodes = len(graph)
         # feature dim from original x_train_file
         feat_dim = x_train_file.shape[1]
-        tx_ext = np.zeros((total_nodes - allx.shape[0], feat_dim), dtype=x_train_file.dtype)
+        tx_ext = np.zeros(
+            (total_nodes - allx.shape[0], feat_dim), dtype=x_train_file.dtype
+        )
         tx_ext[sorted_test_index - allx.shape[0], :] = tx
         # label dim (ally / ty) assumed 2D one-hot in original files
         label_dim = ally.shape[1] if ally.ndim == 2 else 1
@@ -244,11 +250,8 @@ class Planetoid:
         force_reload (bool, optional): Whether to re-process the dataset.
             (default: :obj:`False`)"""
 
-
-
-    url = 'https://github.com/kimiyoung/planetoid/raw/master/data'
-    geom_gcn_url = ('https://raw.githubusercontent.com/graphdml-uiuc-jlu/'
-                    'geom-gcn/master')
+    url = "https://github.com/kimiyoung/planetoid/raw/master/data"
+    geom_gcn_url = "https://raw.githubusercontent.com/graphdml-uiuc-jlu/geom-gcn/master"
 
     def __init__(
         self,
@@ -263,7 +266,7 @@ class Planetoid:
         self.root = root
         self.name = name
         self.split = split.lower()
-        assert self.split in ['public', 'full', 'geom-gcn', 'random']
+        assert self.split in ["public", "full", "geom-gcn", "random"]
         self.num_train_per_class = num_train_per_class
         self.num_val = num_val
         self.num_test = num_test
@@ -271,7 +274,7 @@ class Planetoid:
         os.makedirs(self.raw_dir, exist_ok=True)
         os.makedirs(self.processed_dir, exist_ok=True)
 
-        self._processed_path = osp.join(self.processed_dir, 'data.npz')
+        self._processed_path = osp.join(self.processed_dir, "data.npz")
 
         if force_reload or not osp.exists(self._processed_path):
             self.download()
@@ -283,22 +286,23 @@ class Planetoid:
     # --- directories & filenames (same logic as original) ---
     @property
     def raw_dir(self) -> str:
-        if self.split == 'geom-gcn':
-            return osp.join(self.root, self.name, 'geom-gcn', 'raw')
-        return osp.join(self.root, self.name, 'raw')
+        if self.split == "geom-gcn":
+            return osp.join(self.root, self.name, "geom-gcn", "raw")
+        return osp.join(self.root, self.name, "raw")
 
     @property
     def processed_dir(self) -> str:
-        if self.split == 'geom-gcn':
-            return osp.join(self.root, self.name, 'geom-gcn', 'processed')
-        return osp.join(self.root, self.name, 'processed')
+        if self.split == "geom-gcn":
+            return osp.join(self.root, self.name, "geom-gcn", "processed")
+        return osp.join(self.root, self.name, "processed")
 
     @property
     def raw_file_names(self):
-        names = ['x', 'tx', 'allx', 'y', 'ty', 'ally', 'graph', 'test.index']
-        return [f'ind.{self.name.lower()}.{name}' for name in names]
-    
+        names = ["x", "tx", "allx", "y", "ty", "ally", "graph", "test.index"]
+        return [f"ind.{self.name.lower()}.{name}" for name in names]
+
         ...
+
     @property
     def num_features(self) -> int:
         """Number of input features per node."""
@@ -341,16 +345,16 @@ class Planetoid:
     def download(self) -> None:
         # Download core Planetoid raw files (if missing)
         for fname in self.raw_file_names:
-            url = f'{self.url}/{fname}'
+            url = f"{self.url}/{fname}"
             dest = osp.join(self.raw_dir, fname)
             self._download_file(url, dest)
 
         # If geom-gcn splits requested, download the 10 npz split files
-        if self.split == 'geom-gcn':
+        if self.split == "geom-gcn":
             os.makedirs(self.raw_dir, exist_ok=True)
             for i in range(10):
-                fname = f'{self.name.lower()}_split_0.6_0.2_{i}.npz'
-                url = f'{self.geom_gcn_url}/splits/{fname}'
+                fname = f"{self.name.lower()}_split_0.6_0.2_{i}.npz"
+                url = f"{self.geom_gcn_url}/splits/{fname}"
                 dest = osp.join(self.raw_dir, fname)
                 self._download_file(url, dest)
 
@@ -364,7 +368,9 @@ class Planetoid:
             self.graphs, self.y, self.train_mask, self.val_mask, self.test_mask
         """
         # read_planetoid_data is expected to exist in this module (you provided it earlier)
-        graphs, y_j, train_mask_j, val_mask_j, test_mask_j = read_planetoid_data(self.raw_dir, self.name)
+        graphs, y_j, train_mask_j, val_mask_j, test_mask_j = read_planetoid_data(
+            self.raw_dir, self.name
+        )
 
         # convert masks/labels to numpy for manipulation if needed
         y_np = np.asarray(y_j)
@@ -372,12 +378,12 @@ class Planetoid:
         val_mask = np.asarray(val_mask_j).astype(bool)
         test_mask = np.asarray(test_mask_j).astype(bool)
 
-        if self.split == 'full':
+        if self.split == "full":
             # all nodes except validation and test -> train
             train_mask = np.ones_like(train_mask, dtype=bool)
             train_mask[val_mask | test_mask] = False
 
-        elif self.split == 'random':
+        elif self.split == "random":
             rng = np.random.default_rng()
             num_nodes = y_np.shape[0]
             num_classes = int(y_np.max()) + 1
@@ -405,21 +411,23 @@ class Planetoid:
             val_mask[val_idx] = True
             test_mask[test_idx] = True
 
-        elif self.split == 'geom-gcn':
+        elif self.split == "geom-gcn":
             # load the 10 split npz files and stack masks along axis=1 -> shape (N, 10)
             train_masks = []
             val_masks = []
             test_masks = []
             for i in range(10):
-                fname = f'{self.name.lower()}_split_0.6_0.2_{i}.npz'
+                fname = f"{self.name.lower()}_split_0.6_0.2_{i}.npz"
                 path = osp.join(self.raw_dir, fname)
                 if not osp.exists(path):
-                    raise FileNotFoundError(f"Expected geom-gcn split file not found: {path}")
+                    raise FileNotFoundError(
+                        f"Expected geom-gcn split file not found: {path}"
+                    )
                 splits = np.load(path, allow_pickle=True)
                 # keys assumed to be 'train_mask', 'val_mask', 'test_mask'
-                train_masks.append(np.asarray(splits['train_mask']).astype(bool))
-                val_masks.append(np.asarray(splits['val_mask']).astype(bool))
-                test_masks.append(np.asarray(splits['test_mask']).astype(bool))
+                train_masks.append(np.asarray(splits["train_mask"]).astype(bool))
+                val_masks.append(np.asarray(splits["val_mask"]).astype(bool))
+                test_masks.append(np.asarray(splits["test_mask"]).astype(bool))
 
             # stack to (N, 10)
             train_mask = np.stack(train_masks, axis=1)
@@ -436,11 +444,31 @@ class Planetoid:
     # --- saving / loading processed data ---
     def _save_processed(self) -> None:
         # convert jax arrays to numpy for saving
-        nodes = np.asarray(self.graphs.nodes) if self.graphs.nodes is not None else np.array([])
-        senders = np.asarray(self.graphs.senders) if self.graphs.senders is not None else np.array([], dtype=np.int32)
-        receivers = np.asarray(self.graphs.receivers) if self.graphs.receivers is not None else np.array([], dtype=np.int32)
-        n_node = np.asarray(self.graphs.n_node) if self.graphs.n_node is not None else np.array(0, dtype=np.int32)
-        n_edge = np.asarray(self.graphs.n_edge) if self.graphs.n_edge is not None else np.array(0, dtype=np.int32)
+        nodes = (
+            np.asarray(self.graphs.nodes)
+            if self.graphs.nodes is not None
+            else np.array([])
+        )
+        senders = (
+            np.asarray(self.graphs.senders)
+            if self.graphs.senders is not None
+            else np.array([], dtype=np.int32)
+        )
+        receivers = (
+            np.asarray(self.graphs.receivers)
+            if self.graphs.receivers is not None
+            else np.array([], dtype=np.int32)
+        )
+        n_node = (
+            np.asarray(self.graphs.n_node)
+            if self.graphs.n_node is not None
+            else np.array(0, dtype=np.int32)
+        )
+        n_edge = (
+            np.asarray(self.graphs.n_edge)
+            if self.graphs.n_edge is not None
+            else np.array(0, dtype=np.int32)
+        )
 
         # masks & labels
         y = np.asarray(self.y)
@@ -469,28 +497,32 @@ class Planetoid:
             raise FileNotFoundError(f"Processed file not found: {self._processed_path}")
 
         npz = np.load(self._processed_path, allow_pickle=True)
-        nodes = npz['nodes']
-        senders = npz['senders']
-        receivers = npz['receivers']
-        n_node = npz['n_node'].tolist() if npz['n_node'].shape == () else npz['n_node']
-        n_edge = npz['n_edge'].tolist() if npz['n_edge'].shape == () else npz['n_edge']
+        nodes = npz["nodes"]
+        senders = npz["senders"]
+        receivers = npz["receivers"]
+        n_node = npz["n_node"].tolist() if npz["n_node"].shape == () else npz["n_node"]
+        n_edge = npz["n_edge"].tolist() if npz["n_edge"].shape == () else npz["n_edge"]
 
         # reconstruct GraphsTuple (use jnp arrays)
         graphs = GraphsTuple(
             nodes=jnp.asarray(nodes) if nodes.size != 0 else None,
             edges=None,
-            receivers=jnp.asarray(receivers, dtype=jnp.int32) if receivers.size != 0 else None,
-            senders=jnp.asarray(senders, dtype=jnp.int32) if senders.size != 0 else None,
+            receivers=jnp.asarray(receivers, dtype=jnp.int32)
+            if receivers.size != 0
+            else None,
+            senders=jnp.asarray(senders, dtype=jnp.int32)
+            if senders.size != 0
+            else None,
             globals=None,
             n_node=jnp.asarray(n_node, dtype=jnp.int32),
             n_edge=jnp.asarray(n_edge, dtype=jnp.int32),
         )
 
         self.graphs = graphs
-        self.y = jnp.asarray(npz['y'])
-        self.train_mask = jnp.asarray(npz['train_mask'])
-        self.val_mask = jnp.asarray(npz['val_mask'])
-        self.test_mask = jnp.asarray(npz['test_mask'])
+        self.y = jnp.asarray(npz["y"])
+        self.train_mask = jnp.asarray(npz["train_mask"])
+        self.val_mask = jnp.asarray(npz["val_mask"])
+        self.test_mask = jnp.asarray(npz["test_mask"])
 
     def __repr__(self) -> str:
         return f"Planetoid(name={self.name}, split={self.split})"

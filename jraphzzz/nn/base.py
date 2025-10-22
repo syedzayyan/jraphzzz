@@ -73,8 +73,10 @@ def GraphNetwork(
     Returns:
       A method that applies the configured GraphNetwork.
     """
+
     def not_both_supplied(x, y):
         return (x != y) and ((x is None) or (y is None))
+
     if not_both_supplied(attention_reduce_fn, attention_logit_fn):
         raise ValueError(
             ("attention_logit_fn and attention_reduce_fn must both be supplied.")

@@ -1,0 +1,40 @@
+name: Run Tests
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  unit-tests:
+    name: Run Tests
+    strategy:
+      matrix:
+        os: ["ubuntu-latest", "macos-latest"]
+        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Install uv
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      # Install the dependencies
+      - name: Check docstrings
+        run: |
+          uv sync --extra dev
+
+      # Run the unit tests and build the coverage report
+      - name: Run Tests
+        run: uv run pytest tests/models_test.py
