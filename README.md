@@ -17,37 +17,35 @@ Feel free to contribute, or use any part of the code.
 ![logo](logo.png)
 
 ---
+## Todos
+
+[ ] Examples, like lots of it
+[ ] More Convolutional Layers
+[ ] More Attention Layers
+[ ] Not too keen on models, but hey, if you want please go ahead
+[ ] Hypergraph Stuff
+[ ] Higher Order Stuff
+[ ] Temporal GCNs (?)
+
+
+---
 
 ## Dev Installation (using uv)
 
-To install the **dev version** of Jraphzzz, make sure you have [uv](https://uv.org/) installed, then run the following from the project root:
+To install the **dev version** of Jraphzzz, make sure you have [uv](https://docs.astral.sh/uv/guides/install-python/) installed, then run the following from the project root:
 
 ### Editable install (recommended for development)
 
 ```bash
-uv install -e .
+uv install -e ".[dev]"
 ```
 
 This makes the package **editable**, so changes you make to the source code are immediately available.
 
-### Install with optional extras
+### Install with example extras
 
 ```bash
 uv install -e ".[examples]"
-```
-
-This installs the `examples` dependencies as well.
-
-### Install dev dependencies (pytest, wheel, build, etc.)
-
-```bash
-uv install -D
-```
-
-Or combine editable, extras, and dev tools in one line:
-
-```bash
-uv install -e ".[examples]" -D
 ```
 
 ---
