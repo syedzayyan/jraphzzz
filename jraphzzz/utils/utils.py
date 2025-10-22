@@ -941,13 +941,13 @@ def get_fully_connected_graph(
       `jraph.GraphsTuple`
     """
     if node_features is not None:
-        num_node_features = jax.tree_leaves(node_features)[0].shape[0]
+        num_node_features = jax.tree.leaves(node_features)[0].shape[0]
         if n_node_per_graph * n_graph != num_node_features:
             raise ValueError(
                 "Number of nodes is not equal to num_nodes_per_graph * n_graph."
             )
     if global_features is not None:
-        if n_graph != jax.tree_leaves(global_features)[0].shape[0]:
+        if n_graph != jax.tree.leaves(global_features)[0].shape[0]:
             raise ValueError("The number of globals is not equal to n_graph.")
     senders = []
     receivers = []
@@ -1169,11 +1169,11 @@ def zero_out_padding(graph: gn_graph.GraphsTuple) -> gn_graph.GraphsTuple:
       A graph with the same valid values as input, but padded values zeroed out.
     """
     edge_mask = get_edge_padding_mask(graph)
-    masked_edges = jax.tree_map(_get_zero_fn(edge_mask), graph.edges)
+    masked_edges = jax.tree.map(_get_zero_fn(edge_mask), graph.edges)
     node_mask = get_node_padding_mask(graph)
-    masked_nodes = jax.tree_map(_get_zero_fn(node_mask), graph.nodes)
+    masked_nodes = jax.tree.map(_get_zero_fn(node_mask), graph.nodes)
     global_mask = get_graph_padding_mask(graph)
-    masked_globals = jax.tree_map(_get_zero_fn(global_mask), graph.globals)
+    masked_globals = jax.tree.map(_get_zero_fn(global_mask), graph.globals)
     return graph._replace(
         nodes=masked_nodes, edges=masked_edges, globals=masked_globals
     )

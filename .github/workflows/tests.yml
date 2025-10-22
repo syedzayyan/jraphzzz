@@ -37,4 +37,4 @@ jobs:
 
       # Run the unit tests and build the coverage report
       - name: Run Tests
-        run: uv run pytest tests/models_test.py
+        run: uv run pytest tests
