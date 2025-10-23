@@ -15,12 +15,12 @@ import optax
 from flax.training import train_state
 ```
 
-You can find a description of this dataset in Pytorch-Geometric documentation. 
+You can find a description of this dataset in Pytorch-Geometric documentation.
 Because that's where jraphzzz function is stolen fom.
 In case of split='full', all nodes except those in the validation and test sets will be used for training.
 
 ```{code-cell}
-ds = jraphzzz.Planetoid(root='datasets', name='Cora', split='public')
+ds = jraphzzz.Planetoid(root="datasets", name="Cora", split="public")
 ```
 
 ```{code-cell}
@@ -42,93 +42,100 @@ one_hot_labels = jax.nn.one_hot(graph_labels, len(jnp.unique(graph_labels)))
 
 ```{code-cell}
 def make_embed_fn(latent_size):
-  def embed(inputs):
-    return nn.Dense(latent_size)(inputs)
-  return embed
+    def embed(inputs):
+        return nn.Dense(latent_size)(inputs)
 
-def _attention_logit_fn(sender_attr: jnp.ndarray,
-                        receiver_attr: jnp.ndarray,
-                        edges: jnp.ndarray) -> jnp.ndarray:
-  del edges
-  x = jnp.concatenate((sender_attr, receiver_attr), axis=1)
-  return nn.Dense(1)(x)
+    return embed
+
 
 class GCN(nn.Module):
-  """Defines a GAT network using FLAX
+    """Defines a GAT network using FLAX
 
-  Args:
-    graph: GraphsTuple the network processes.
+    Args:
+      graph: GraphsTuple the network processes.
 
-  Returns:
-    output graph with updated node values.
-  """
-  gcn1_output_dim: int
-  output_dim: int
+    Returns:
+      output graph with updated node values.
+    """
 
-  @nn.compact
-  def __call__(self, x):
-    gcn1 = jraphzzz.GraphConvolution(update_node_fn=lambda n: jax.nn.relu(make_embed_fn(self.gcn1_output_dim)(n)),
-                          add_self_edges=True)
-    gcn2 = jraphzzz.GraphConvolution(update_node_fn=nn.Dense(self.output_dim))
-    return gcn2(gcn1(x))
+    gcn1_output_dim: int
+    output_dim: int
+
+    @nn.compact
+    def __call__(self, x):
+        gcn1 = jraphzzz.GraphConvolution(
+            update_node_fn=lambda n: jax.nn.relu(
+                make_embed_fn(self.gcn1_output_dim)(n)
+            ),
+            add_self_edges=True,
+        )
+        gcn2 = jraphzzz.GraphConvolution(update_node_fn=nn.Dense(self.output_dim))
+        return gcn2(gcn1(x))
+
 
 model = GCN(8, len(jnp.unique(graph_labels)))
 model
-
-GCN(
-    # attributes
-    gcn1_output_dim = 8,
-    output_dim = 7
-)
 ```
 
 ```{code-cell}
 optimizer = optax.adam(learning_rate=0.01)
 
 rng, inp_rng, init_rng = jax.random.split(jax.random.PRNGKey(142), 3)
-params = model.init(jax.random.PRNGKey(142),graph)
+params = model.init(jax.random.PRNGKey(142), graph)
 
-model_state = train_state.TrainState.create(apply_fn=model.apply,
-                                            params=params,
-                                            tx=optimizer)
+model_state = train_state.TrainState.create(
+    apply_fn=model.apply, params=params, tx=optimizer
+)
 ```
 
 ```{code-cell}
 def compute_loss(state, params, graph, labels, one_hot_labels, mask):
-  """Computes loss."""
-  pred_graph = state.apply_fn(params, graph)
-  preds = jax.nn.log_softmax(pred_graph.nodes)
-  loss = optax.softmax_cross_entropy(preds, one_hot_labels)
-  loss_mask = jnp.sum(jnp.where(mask, loss, 0)) / jnp.sum(mask)
+    """Computes loss."""
+    pred_graph = state.apply_fn(params, graph)
+    preds = jax.nn.log_softmax(pred_graph.nodes)
+    loss = optax.softmax_cross_entropy(preds, one_hot_labels)
+    loss_mask = jnp.sum(jnp.where(mask, loss, 0)) / jnp.sum(mask)
 
-  pred_labels = jnp.argmax(preds, axis=1)
-  acc = (pred_labels == labels)
-  acc_mask = jnp.sum(jnp.where(mask, acc, 0)) / jnp.sum(mask)
-  return loss_mask, acc_mask
+    pred_labels = jnp.argmax(preds, axis=1)
+    acc = pred_labels == labels
+    acc_mask = jnp.sum(jnp.where(mask, acc, 0)) / jnp.sum(mask)
+    return loss_mask, acc_mask
 ```
 
 ```{code-cell}
 @jax.jit  # Jit the function for efficiency
 def train_step(state, graph, graph_labels, one_hot_labels, train_mask):
-  # Gradient function
-  grad_fn = jax.value_and_grad(compute_loss,  # Function to calculate the loss
-                                argnums=1,  # Parameters are second argument of the function
-                                has_aux=True  # Function has additional outputs, here accuracy
-                              )
-  # Determine gradients for current model, parameters and batch
-  (loss, acc), grads = grad_fn(state, state.params, graph, graph_labels, one_hot_labels, train_mask)
-  # Perform parameter update with gradients and optimizer
-  state = state.apply_gradients(grads=grads)
-  # Return state and any other value we might want
-  return state, loss, acc
+    # Gradient function
+    grad_fn = jax.value_and_grad(
+        compute_loss,  # Function to calculate the loss
+        argnums=1,  # Parameters are second argument of the function
+        has_aux=True,  # Function has additional outputs, here accuracy
+    )
+    # Determine gradients for current model, parameters and batch
+    (loss, acc), grads = grad_fn(
+        state, state.params, graph, graph_labels, one_hot_labels, train_mask
+    )
+    # Perform parameter update with gradients and optimizer
+    state = state.apply_gradients(grads=grads)
+    # Return state and any other value we might want
+    return state, loss, acc
 
-def train_model(state, graph, graph_labels, one_hot_labels, train_mask, val_mask, num_epochs):
-  # Training loop
-  for epoch in range(num_epochs):
-    state, loss, acc = train_step(state, graph, graph_labels, one_hot_labels, train_mask)
-    val_loss, val_acc = compute_loss(state, state.params, graph, graph_labels, one_hot_labels, val_mask)
-    print(f'step: {epoch:03d}, train loss: {loss:.4f}, train acc: {acc:.4f}, val loss: {val_loss:.4f}, val acc: {val_acc:.4f}')
-  return state, acc, val_acc
+
+def train_model(
+    state, graph, graph_labels, one_hot_labels, train_mask, val_mask, num_epochs
+):
+    # Training loop
+    for epoch in range(num_epochs):
+        state, loss, acc = train_step(
+            state, graph, graph_labels, one_hot_labels, train_mask
+        )
+        val_loss, val_acc = compute_loss(
+            state, state.params, graph, graph_labels, one_hot_labels, val_mask
+        )
+        print(
+            f"step: {epoch:03d}, train loss: {loss:.4f}, train acc: {acc:.4f}, val loss: {val_loss:.4f}, val acc: {val_acc:.4f}"
+        )
+    return state, acc, val_acc
 ```
 
 ```{code-cell}
@@ -136,9 +143,17 @@ accuracy_list = []
 ```
 
 ```{code-cell}
-trained_model_state, train_acc, val_acc = train_model(model_state, graph, graph_labels, one_hot_labels, graph_train_mask, graph_val_mask, num_epochs=200)
-accuracy_list.append(['Cora', 'train', float(train_acc)])
-accuracy_list.append(['Cora', 'valid', float(val_acc)])
+trained_model_state, train_acc, val_acc = train_model(
+    model_state,
+    graph,
+    graph_labels,
+    one_hot_labels,
+    graph_train_mask,
+    graph_val_mask,
+    num_epochs=200,
+)
+accuracy_list.append(["Cora", "train", float(train_acc)])
+accuracy_list.append(["Cora", "valid", float(val_acc)])
 ```
 
 ```{code-cell}

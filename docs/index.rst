@@ -13,6 +13,7 @@ models.
   :caption: API Documentation:
   :maxdepth: 2
 
+  quickstart
   data
   examples
 
