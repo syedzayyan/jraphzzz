@@ -91,7 +91,7 @@ class MoleculeGCN(nnx.Module):
           net = nnx.Sequential(
               nnx.Linear(int(feats.shape[1]), 128, rngs=self.rngs),
               jax.nn.relu,
-              nnx.Linear(128, 2, rngs=self.rngs),
+              nnx.Linear(128, 3, rngs=self.rngs),
           )
           return net(feats)
 
@@ -153,7 +153,7 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     # Initialize network with forward pass
     _ = net(graph)
     # Create optimizer
-    optimizer = nnx.Optimizer(net, optax.adam(0.01), wrt = nnx.Param)
+    optimizer = nnx.Optimizer(net, optax.adam(1e-5), wrt = nnx.Param)
     
     @nnx.jit
     def train_step(model, optimizer, graph, label):
@@ -162,7 +162,7 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
             pred_graph = model(graph)
             logits = pred_graph.globals  # Shape: (num_graphs, 2)
             preds = jax.nn.log_softmax(logits, axis=-1)  # Add axis=-1
-            targets = jax.nn.one_hot(label, 2)
+            targets = jax.nn.one_hot(label, 3)
             
             # Mask for padded graphs
             mask = jraphzzz.get_graph_padding_mask(pred_graph)
@@ -200,51 +200,50 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     return net
 
 # %%
-params = train(train_graphs, train_labels, num_train_steps=100)
+params = train(train_graphs, train_labels, num_train_steps=500)
 
 # %%
-def evaluate(dataset: List[Dict[str, Any]], graph_labels, net) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Evaluation Script using the same style as the training loop."""
+    
+    # Batch all graphs and pad to nearest power of two
+    batched_graphs = jraphzzz.batch([pad_graph_to_nearest_power_of_two(graph) for graph in dataset])
+    
+    labels_array = jnp.array(labels)
+    num_batched_graphs = batched_graphs.n_node.shape[0]
+    num_original_graphs = len(labels)
+    num_padding_graphs = num_batched_graphs - num_original_graphs
+    
+    # Pad labels with zeros if necessary
+    padded_labels = jnp.concatenate([
+        labels_array,
+        jnp.zeros(num_padding_graphs, dtype=labels_array.dtype)
+    ])
     
     @nnx.jit
     def eval_step(model, graph, label):
-        output_graph = model(graph)
-        logits = output_graph.globals
+        pred_graph = model(graph)
+        logits = pred_graph.globals  # Shape: (num_graphs, num_classes)
+        preds = jax.nn.log_softmax(logits, axis=-1)
+        targets = jax.nn.one_hot(label, logits.shape[-1])
         
-        if logits.ndim > 1:
-            logits = jnp.squeeze(logits)
+        mask = jraphzzz.get_graph_padding_mask(pred_graph)
         
-        loss = jnp.mean((logits - label) ** 2)
-        acc = jnp.mean((logits > 0.5) == (label > 0.5))
-        return loss, acc
-    
-    accumulated_loss = 0.0
-    accumulated_accuracy = 0.0
-    
-    for idx, (graph, label) in enumerate(zip(dataset, graph_labels)):
-        graph = pad_graph_to_nearest_power_of_two(graph)
+        # Loss over valid graphs only
+        loss = -jnp.sum(preds * targets * mask[:, None]) / jnp.sum(mask)
         
-        # Only append 0 if necessary
-        if label.ndim == 0:
-            label = jnp.concatenate([label.reshape(1,), jnp.array([0.0])])
-        else:
-            label = jnp.concatenate([label, jnp.array([0.0])])
+        # Accuracy over valid graphs only
+        accuracy = jnp.sum((jnp.argmax(logits, axis=1) == label) * mask) / jnp.sum(mask)
         
-        loss, acc = eval_step(net, graph, label)
-        accumulated_loss += loss
-        accumulated_accuracy += acc
-        
-        if idx % 100 == 0:
-            print(f'Evaluated {idx + 1} graphs')
-    
-    num_items = len(dataset)
-    avg_loss = accumulated_loss / num_items
-    avg_accuracy = accumulated_accuracy / num_items
+        return loss, accuracy
+
+    # Evaluate on all graphs at once
+    loss, acc = eval_step(net, batched_graphs, padded_labels)
     
     print('Completed evaluation.')
-    print(f'Eval loss: {avg_loss}, accuracy: {avg_accuracy}')
+    print(f'Eval loss: {loss:.4f}, accuracy: {acc:.4f}')
     
-    return avg_loss, avg_accuracy
+    return loss, acc
 
 
 # %%
