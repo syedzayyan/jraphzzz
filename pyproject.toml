@@ -23,11 +23,11 @@ classifiers = [
 dependencies = [
   "jax>=0.6.0",
   "jaxlib>=0.6.0",
-  "numpy>=1.26"
+  "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
-examples = ["frozendict", "optax", "scipy", "flax"]
+examples = ["frozendict", "optax", "scipy", "flax", "rdkit"]
 dev = [
   "pytest>=8.4",
   "setuptools>=61.0",

@@ -1,7 +1,6 @@
-# %% [markdown]
-# # Molecule Solubility
+# Molecule Solubility
 
-# %%
+```{code-cell}
 import jraphzzz
 import random
 from rdkit import Chem
@@ -10,11 +9,14 @@ import flax.nnx as nnx
 import jax
 from typing import Any, Dict, List, Tuple
 import optax
+```
 
-# %%
+```{code-cell}
 !wget -P "./datasets" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.train.sdf 
 !wget -P "./datasets" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.test.sdf
-# %%
+```
+
+```{code-cell}
 def load_ds(train_sdf: str, test_sdf: str):
     train_mols = [m for m in Chem.SDMolSupplier(train_sdf) if m is not None]
     test_mols = [m for m in Chem.SDMolSupplier(test_sdf) if m is not None]
@@ -40,14 +42,15 @@ def load_ds(train_sdf: str, test_sdf: str):
     test_labels = jnp.array([extract_label(m) for m in test_mols], dtype=jnp.float32)
 
     return (train_graphs, train_labels), (test_graphs, test_labels)
+```
 
-
-# %%
+```{code-cell}
 TRAIN_SDF = "./datasets/solubility.train.sdf"
 TEST_SDF = "./datasets/solubility.test.sdf"
 (train_graphs, train_labels), (test_graphs, test_labels) = load_ds(TRAIN_SDF, TEST_SDF)
+```
 
-# %%
+```{code-cell}
 class MoleculeGCN(nnx.Module):
   def __init__(self, rngs: nnx.Rngs):
       self.rngs = rngs
@@ -111,8 +114,9 @@ class MoleculeGCN(nnx.Module):
 
       embedded_graph = embedder(graph)  # should now succeed
       return net(embedded_graph)
+```
 
-# %%
+```{code-cell}
 # Adapted from https://github.com/deepmind/jraph/blob/master/jraph/ogb_examples/train.py
 def _nearest_bigger_power_of_two(x: int) -> int:
   """Computes the nearest power of two greater than x for padding."""
@@ -145,8 +149,9 @@ def pad_graph_to_nearest_power_of_two(
   pad_graphs_to = graphs_tuple.n_node.shape[0] + 1
   return jraphzzz.pad_with_graphs(graphs_tuple, pad_nodes_to, pad_edges_to,
                                pad_graphs_to)
+```
 
-# %%
+```{code-cell}
 def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     """Training loop."""
     # Initialize the network
@@ -201,11 +206,13 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     
     print('Training finished')
     return net
+```
 
-# %%
+```{code-cell}
 params = train(train_graphs, train_labels, num_train_steps=500)
+```
 
-# %%
+```{code-cell}
 def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Evaluation Script using the same style as the training loop."""
     
@@ -247,9 +254,12 @@ def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, j
     print(f'Eval loss: {loss:.4f}, accuracy: {acc:.4f}')
     
     return loss, acc
+```
 
-
-# %%
+```{code-cell}
 evaluate(test_graphs, test_labels, params)
+```
 
-# %%
+```{code-cell}
+
+```

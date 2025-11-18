@@ -1,5 +1,4 @@
 import jax.numpy as jnp 
-from rdkit import Chem, RDLogger 
 from typing import Any, List, Dict
 from ..data.graph import GraphsTuple
 
@@ -76,6 +75,8 @@ e_map: Dict[str, List[Any]] = {
 }
 
 def from_smiles(smiles: str, with_hydrogen: bool = False, kekulize: bool = False) -> GraphsTuple:
+    from rdkit import Chem, RDLogger 
+
     RDLogger.DisableLog('rdApp.*')
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:

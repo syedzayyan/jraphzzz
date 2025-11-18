@@ -25,8 +25,8 @@ from jraphzzz.nn.models import (
     GraphNetGAT,
     InteractionNetwork,
     RelationNetwork,
-    GraphMapFeatures,
 )
+from jraphzzz.nn.base import GraphMapFeatures
 from jraphzzz import utils
 import numpy as np
 import pytest
