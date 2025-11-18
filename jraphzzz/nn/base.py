@@ -10,6 +10,9 @@ from .types import (
     AttentionLogitFn,
     AttentionNormalizeFn,
     AttentionReduceFn,
+    EmbedEdgeFn,
+    EmbedNodeFn,
+    EmbedGlobalFn,
 )
 
 
@@ -189,3 +192,31 @@ def GraphNetwork(
         )
 
     return _ApplyGraphNet
+
+
+def GraphMapFeatures(
+    embed_edge_fn: Optional[EmbedEdgeFn] = None,
+    embed_node_fn: Optional[EmbedNodeFn] = None,
+    embed_global_fn: Optional[EmbedGlobalFn] = None,
+):
+    """Returns function which embeds the components of a graph independently.
+
+    Args:
+      embed_edge_fn: function used to embed the edges.
+      embed_node_fn: function used to embed the nodes.
+      embed_global_fn: function used to embed the globals.
+    """
+    def identity(x):
+        return x
+    embed_edges_fn = embed_edge_fn if embed_edge_fn else identity
+    embed_nodes_fn = embed_node_fn if embed_node_fn else identity
+    embed_global_fn = embed_global_fn if embed_global_fn else identity
+
+    def Embed(graphs_tuple):
+        return graphs_tuple._replace(
+            nodes=embed_nodes_fn(graphs_tuple.nodes),
+            edges=embed_edges_fn(graphs_tuple.edges),
+            globals=embed_global_fn(graphs_tuple.globals),
+        )
+
+    return Embed

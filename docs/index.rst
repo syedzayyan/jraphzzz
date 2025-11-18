@@ -20,7 +20,7 @@ models.
 Overview
 --------
 
-Jraph is designed to provide utilities for working with graphs in jax, but
+Jraphzzz is designed to provide utilities for working with graphs in jax, but
 doesn't prescribe a way to write or develop graph neural networks.
 
 *  ``graph.py`` provides a lightweight data structure, ``GraphsTuple``, for working with graphs.

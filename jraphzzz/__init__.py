@@ -34,7 +34,7 @@ from jraphzzz.nn.types import GNUpdateGlobalFn
 from jraphzzz.nn.types import GNUpdateNodeFn
 from jraphzzz.nn.layers import GraphConvolution
 
-# from jraph.nn.types import GraphMapFeatures
+from jraphzzz.nn.base import GraphMapFeatures
 # from jraph.nn.models import GraphNetGAT
 from jraphzzz.nn.base import GraphNetwork
 
@@ -79,6 +79,7 @@ from jraphzzz.utils.laplacian import get_laplacian_matrix
 
 from jraphzzz.data.download.cora import Planetoid
 
+from jraphzzz.utils.chem import from_smiles
 
 __version__ = "0.0.7.dev0"
 
@@ -135,4 +136,6 @@ __all__ = (
     "zero_out_padding",
     "sparse_matrix_to_graphs_tuple",
     "Planetoid",
+
+    "from_smiles",
 )
