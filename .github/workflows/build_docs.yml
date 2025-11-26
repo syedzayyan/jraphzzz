@@ -1,0 +1,53 @@
+name: Build Docs
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install documentation dependencies
+        run: |
+          pip install \
+            "sphinx>=7.0" \
+            "sphinxcontrib-katex>=0.9" \
+            "sphinxcontrib-bibtex>=2.0" \
+            "sphinx-autodoc-typehints>=2.0" \
+            "nbsphinx>=0.9" \
+            "furo>=2025.09.25" \
+            "myst-parser>=0.18" \
+            "myst-nb>=0.18" \
+            jupytext \
+            flax \
+            optax \
+            rdkit
+
+      - name: Convert .py examples to MyST Markdown
+        run: |
+          mkdir -p docs/examples
+          for file in examples/*.py; do
+            filename=$(basename "$file" .py)
+            jupytext --to md:myst "$file" -o docs/examples/"$filename".md
+          done
+
+      - name: Build Sphinx documentation
+        run: |
+          sphinx-build -b html docs/ docs/_build/html
+
+      - name: Upload HTML docs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-docs
+          path: docs/_build/html
