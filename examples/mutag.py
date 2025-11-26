@@ -12,9 +12,6 @@ from typing import Any, Dict, List, Tuple
 import optax
 
 # %%
-!wget -P "./datasets" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.train.sdf 
-!wget -P "./datasets" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.test.sdf
-# %%
 def load_ds(train_sdf: str, test_sdf: str):
     train_mols = [m for m in Chem.SDMolSupplier(train_sdf) if m is not None]
     test_mols = [m for m in Chem.SDMolSupplier(test_sdf) if m is not None]
@@ -41,86 +38,24 @@ def load_ds(train_sdf: str, test_sdf: str):
 
     return (train_graphs, train_labels), (test_graphs, test_labels)
 
-
 # %%
 TRAIN_SDF = "./datasets/solubility.train.sdf"
 TEST_SDF = "./datasets/solubility.test.sdf"
 (train_graphs, train_labels), (test_graphs, test_labels) = load_ds(TRAIN_SDF, TEST_SDF)
 
 # %%
-class MoleculeGCN(nnx.Module):
-  def __init__(self, rngs: nnx.Rngs):
-      self.rngs = rngs
-
-  def __call__(self, graph: jraphzzz.GraphsTuple) -> jraphzzz.GraphsTuple:
-      # ensure a globals field exists (1 feature per graph here)
-      graph = graph._replace(globals=jnp.zeros([graph.n_node.shape[0], 1]))
-
-
-      # infer dims (convert to int to avoid JAX tracers in prints)
-      node_in = 0 if graph.nodes is None else int(graph.nodes.shape[1])
-      edge_in = 0 if graph.edges is None else int(graph.edges.shape[1])
-      global_in = 0 if graph.globals is None else int(graph.globals.shape[1])
-
-      # Build per-slot embedders using inferred dims
-      node_embed = nnx.Linear(node_in, 128, rngs=self.rngs) if node_in > 0 else (lambda x: x)
-      edge_embed = nnx.Linear(edge_in, 128, rngs=self.rngs) if edge_in > 0 else (lambda x: x)
-      global_embed = (
-          nnx.Linear(global_in, 128, rngs=self.rngs) if global_in > 0 else (lambda x: x)
-      )
-
-      # ---- Construct update functions here so they can capture `rngs` ----
-      # These create their Linear layers at *call* time but with rngs available.
-      @jraphzzz.concatenated_args
-      def edge_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
-          net = nnx.Sequential(
-              nnx.Linear(int(feats.shape[1]), 128, rngs=self.rngs),
-              jax.nn.relu,
-              nnx.Linear(128, 128, rngs=self.rngs),
-          )
-          return net(feats)
-
-      @jraphzzz.concatenated_args
-      def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
-          net = nnx.Sequential(
-              nnx.Linear(int(feats.shape[1]), 128, rngs=self.rngs),
-              jax.nn.relu,
-              nnx.Linear(128, 128, rngs=self.rngs),
-          )
-          return net(feats)
-
-      @jraphzzz.concatenated_args
-      def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
-          net = nnx.Sequential(
-              nnx.Linear(int(feats.shape[1]), 128, rngs=self.rngs),
-              jax.nn.relu,
-              nnx.Linear(128, 3, rngs=self.rngs),
-          )
-          return net(feats)
-
-      # --------------------------------------------------------------------
-
-      # IMPORTANT: GraphMapFeatures expects embedders in the order: (edges, nodes, globals)
-      embedder = jraphzzz.GraphMapFeatures(edge_embed, node_embed, global_embed)
-
-      net = jraphzzz.GraphNetwork(
-          update_node_fn=node_update_fn,
-          update_edge_fn=edge_update_fn,
-          update_global_fn=update_global_fn,
-      )
-
-      embedded_graph = embedder(graph)  # should now succeed
-      return net(embedded_graph)
+train_graphs[0]
 
 # %%
-# Adapted from https://github.com/deepmind/jraph/blob/master/jraph/ogb_examples/train.py
 def _nearest_bigger_power_of_two(x: int) -> int:
   """Computes the nearest power of two greater than x for padding."""
   y = 2
-  while y < x:
+  while y < x: 
     y *= 2
   return y
 
+
+# %%
 def pad_graph_to_nearest_power_of_two(
     graphs_tuple: jraphzzz.GraphsTuple) -> jraphzzz.GraphsTuple:
   """Pads a batched `GraphsTuple` to the nearest power of two.
@@ -147,14 +82,116 @@ def pad_graph_to_nearest_power_of_two(
                                pad_graphs_to)
 
 # %%
+_nearest_bigger_power_of_two(jnp.sum(train_graphs[0].n_node)) + 1
+
+# %%
+def pad_graphs_to_max_size(
+    graphs_list: list[jraphzzz.GraphsTuple]) -> list[jraphzzz.GraphsTuple]:
+    """Pads a list of batched `GraphsTuple`s to the maximum size across all graphs.
+    
+    Finds the maximum number of nodes, edges, and graphs across all GraphsTuples
+    in the list, then pads each GraphsTuple to match these maximum dimensions.
+    
+    Args:
+        graphs_list: a list of batched `GraphsTuple` objects.
+    
+    Returns:
+        A list of graphs_tuples padded to the maximum dimensions.
+    """
+    # Find maximum dimensions across all graphs
+    pad_nodes_to = _nearest_bigger_power_of_two(max(int(jnp.sum(g.n_node)) for g in train_graphs))
+    pad_edges_to = _nearest_bigger_power_of_two(max(int(jnp.sum(g.n_edge)) for g in train_graphs))
+    
+    # Pad each graph to the maximum dimensions
+    padded_graphs = []
+    for graph in graphs_list:
+        pad_graphs_to = graph.n_node.shape[0] + 1
+        padded_graph = jraphzzz.pad_with_graphs(
+            graph, pad_nodes_to, pad_edges_to, pad_graphs_to
+        )
+        padded_graphs.append(padded_graph)
+    
+    return padded_graphs, {
+        "max_nodes": pad_nodes_to,
+        "max_edges" : pad_edges_to,
+    }
+
+# %%
+padded_graphs, metadata = pad_graphs_to_max_size(train_graphs + test_graphs)
+
+padded_train_graphs = padded_graphs[:len(train_graphs)]
+padded_test_graphs = padded_graphs[len(test_graphs):]
+
+# %%
+class MoleculeGCN(nnx.Module):
+    def __init__(self, rngs: nnx.Rngs, node_in: int, edge_in: int, global_in: int):
+        self.rngs = rngs
+
+        # Fixed embedders for GraphMapFeatures
+        self.node_embed = nnx.Linear(node_in, 128, rngs=self.rngs) if node_in > 0 else (lambda x: x)
+        self.edge_embed = nnx.Linear(edge_in, 128, rngs=self.rngs) if edge_in > 0 else (lambda x: x)
+        self.global_embed = nnx.Linear(global_in, 128, rngs=self.rngs) if global_in > 0 else (lambda x: x)
+
+        # Fixed update MLPs for GraphNetwork
+        self.edge_update_fn = nnx.Sequential(
+            nnx.Linear(128 * 4, 128, rngs=self.rngs),
+            jax.nn.relu,
+            nnx.Linear(128, 128, rngs=self.rngs),
+        )
+
+        self.node_update_fn = nnx.Sequential(
+            nnx.Linear(128 * 4, 128, rngs=self.rngs),
+            jax.nn.relu,
+            nnx.Linear(128, 128, rngs=self.rngs),
+        )
+
+        self.update_global_fn = nnx.Sequential(
+            nnx.Linear(128 * 3, 128, rngs=self.rngs),
+            jax.nn.relu,
+            nnx.Linear(128, 3, rngs=self.rngs),
+        )
+
+    def __call__(self, graph: jraphzzz.GraphsTuple) -> jraphzzz.GraphsTuple:
+        # Ensure a globals field exists
+        graph = graph._replace(globals=jnp.zeros([graph.n_node.shape[0], 1]))
+
+        # GraphMapFeatures expects (edges, nodes, globals)
+        embedder = jraphzzz.GraphMapFeatures(
+            self.edge_embed, self.node_embed, self.global_embed
+        )
+
+        @jraphzzz.concatenated_args
+        def edge_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
+            return self.edge_update_fn(feats)
+
+        @jraphzzz.concatenated_args
+        def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
+            return self.node_update_fn(feats)
+
+        @jraphzzz.concatenated_args
+        def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
+            return self.update_global_fn(feats)
+
+
+
+        net = jraphzzz.GraphNetwork(
+            update_node_fn=node_update_fn,
+            update_edge_fn=edge_update_fn,
+            update_global_fn=update_global_fn,
+        )
+
+        embedded_graph = embedder(graph)
+        return net(embedded_graph)
+
+
+# %%
+gxn = MoleculeGCN(nnx.Rngs(0), 9, 3, 1)
+
+# %%
 def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     """Training loop."""
     # Initialize the network
-    net = MoleculeGCN(nnx.Rngs(0))
-    # Get a candidate graph to initialize
-    graph = dataset[0]
-    # Initialize network with forward pass
-    _ = net(graph)
+    net = MoleculeGCN(nnx.Rngs(0), 9, 3, 1)
     # Create optimizer
     optimizer = nnx.Optimizer(net, optax.adam(1e-5), wrt = nnx.Param)
     
@@ -184,7 +221,7 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
         return loss, acc
     
     for idx in range(num_train_steps):
-        batched_graphs = jraphzzz.batch([pad_graph_to_nearest_power_of_two(graph) for graph in dataset])
+        batched_graphs = jraphzzz.batch(dataset)
         labels_array = jnp.array(labels)
         num_batched_graphs = batched_graphs.n_node.shape[0]
         num_original_graphs = len(labels)
@@ -202,15 +239,16 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     print('Training finished')
     return net
 
+
 # %%
-params = train(train_graphs, train_labels, num_train_steps=500)
+params = train(padded_train_graphs, train_labels, num_train_steps=100)
 
 # %%
 def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Evaluation Script using the same style as the training loop."""
     
     # Batch all graphs and pad to nearest power of two
-    batched_graphs = jraphzzz.batch([pad_graph_to_nearest_power_of_two(graph) for graph in dataset])
+    batched_graphs = jraphzzz.batch(dataset)
     
     labels_array = jnp.array(labels)
     num_batched_graphs = batched_graphs.n_node.shape[0]
@@ -250,6 +288,4 @@ def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, j
 
 
 # %%
-evaluate(test_graphs, test_labels, params)
-
-# %%
+evaluate(padded_test_graphs, test_labels, params)

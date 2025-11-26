@@ -19,13 +19,13 @@ Feel free to contribute, or use any part of the code.
 ---
 ## Todos
 
-[ ] Examples, like lots of it
-[ ] More Convolutional Layers
-[ ] More Attention Layers
-[ ] Not too keen on models, but hey, if you want please go ahead
-[ ] Hypergraph Stuff
-[ ] Higher Order Stuff
-[ ] Temporal GCNs (?)
+- [ ] Examples, like lots of it
+- [ ] More Convolutional Layers
+- [ ] More Attention Layers
+- [ ] Not too keen on models, but hey, if you want please go ahead
+- [ ] Hypergraph Stuff
+- [ ] Higher Order Stuff
+- [ ] Temporal GCNs (?)
 
 
 ---
