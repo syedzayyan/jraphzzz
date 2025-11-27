@@ -1,4 +1,14 @@
-# Molecule Solubility
+# Molecule Solubility Prediction with Graph Neural Networks
+
+## Overview
+This notebook demonstrates how to predict molecular solubility using Graph Convolutional Networks (GCNs). Molecules are naturally represented as graphs where atoms are nodes and chemical bonds are edges. We'll classify molecules into three solubility categories: low, medium, and high.
+
+## What You'll Learn
+- Converting molecular structures to graph representations
+- Loading and preprocessing molecular datasets from SDF files
+- Building a GCN for graph-level classification (predicting properties of entire molecules)
+- Handling variable-sized graphs through padding
+- Training and evaluating models on molecular property prediction tasks
 
 ```{code-cell}
 import jraphzzz
@@ -11,10 +21,25 @@ from typing import Any, Dict, List, Tuple
 import optax
 ```
 
-```{code-cell}
-!wget -P "./datasets" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.train.sdf 
-!wget -P "./datasets" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.test.sdf
-```
+
+## Loading Molecular Data from SDF Files
+
+**What is an SDF file?**
+Structure-Data File format stores 3D molecular structures along with properties. It's a standard format in computational chemistry.
+
+**The `load_ds` function does several things:**
+
+1. **Load molecules**: Read SDF files and filter out invalid structures
+2. **Extract labels**: Parse solubility class from molecular properties
+   - Searches multiple possible property names (datasets vary in naming)
+   - Maps text labels "(A) low", "(B) medium", "(C) high" to integers 0, 1, 2
+   - Falls back to random labels if property is missing (handles messy real-world data)
+
+3. **Convert to graphs**: Transform molecules to SMILES strings, then to graph representations
+   - SMILES (Simplified Molecular Input Line Entry System) is a text notation for molecules
+   - `jraphzzz.from_smiles()` converts SMILES to GraphsTuple with atom/bond features
+
+4. **Return formatted data**: Training and test sets with graphs and labels ready for modeling
 
 ```{code-cell}
 def load_ds(train_sdf: str, test_sdf: str):
@@ -44,6 +69,15 @@ def load_ds(train_sdf: str, test_sdf: str):
     return (train_graphs, train_labels), (test_graphs, test_labels)
 ```
 
+## Dataset Loading
+
+We load train and test molecular datasets from SDF files. These files contain:
+- Molecular structures (atom coordinates, bond information)
+- Chemical properties (including solubility classification)
+- Metadata about each molecule
+
+The datasets are split into training (for learning) and testing (for evaluation).
+
 ```{code-cell}
 TRAIN_SDF = "./datasets/solubility.train.sdf"
 TEST_SDF = "./datasets/solubility.test.sdf"
@@ -51,80 +85,30 @@ TEST_SDF = "./datasets/solubility.test.sdf"
 ```
 
 ```{code-cell}
-class MoleculeGCN(nnx.Module):
-  def __init__(self, rngs: nnx.Rngs):
-      self.rngs = rngs
-
-  def __call__(self, graph: jraphzzz.GraphsTuple) -> jraphzzz.GraphsTuple:
-      # ensure a globals field exists (1 feature per graph here)
-      graph = graph._replace(globals=jnp.zeros([graph.n_node.shape[0], 1]))
-
-
-      # infer dims (convert to int to avoid JAX tracers in prints)
-      node_in = 0 if graph.nodes is None else int(graph.nodes.shape[1])
-      edge_in = 0 if graph.edges is None else int(graph.edges.shape[1])
-      global_in = 0 if graph.globals is None else int(graph.globals.shape[1])
-
-      # Build per-slot embedders using inferred dims
-      node_embed = nnx.Linear(node_in, 128, rngs=self.rngs) if node_in > 0 else (lambda x: x)
-      edge_embed = nnx.Linear(edge_in, 128, rngs=self.rngs) if edge_in > 0 else (lambda x: x)
-      global_embed = (
-          nnx.Linear(global_in, 128, rngs=self.rngs) if global_in > 0 else (lambda x: x)
-      )
-
-      # ---- Construct update functions here so they can capture `rngs` ----
-      # These create their Linear layers at *call* time but with rngs available.
-      @jraphzzz.concatenated_args
-      def edge_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
-          net = nnx.Sequential(
-              nnx.Linear(int(feats.shape[1]), 128, rngs=self.rngs),
-              jax.nn.relu,
-              nnx.Linear(128, 128, rngs=self.rngs),
-          )
-          return net(feats)
-
-      @jraphzzz.concatenated_args
-      def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
-          net = nnx.Sequential(
-              nnx.Linear(int(feats.shape[1]), 128, rngs=self.rngs),
-              jax.nn.relu,
-              nnx.Linear(128, 128, rngs=self.rngs),
-          )
-          return net(feats)
-
-      @jraphzzz.concatenated_args
-      def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
-          net = nnx.Sequential(
-              nnx.Linear(int(feats.shape[1]), 128, rngs=self.rngs),
-              jax.nn.relu,
-              nnx.Linear(128, 3, rngs=self.rngs),
-          )
-          return net(feats)
-
-      # --------------------------------------------------------------------
-
-      # IMPORTANT: GraphMapFeatures expects embedders in the order: (edges, nodes, globals)
-      embedder = jraphzzz.GraphMapFeatures(edge_embed, node_embed, global_embed)
-
-      net = jraphzzz.GraphNetwork(
-          update_node_fn=node_update_fn,
-          update_edge_fn=edge_update_fn,
-          update_global_fn=update_global_fn,
-      )
-
-      embedded_graph = embedder(graph)  # should now succeed
-      return net(embedded_graph)
+train_graphs[0]
 ```
 
+## Graph Padding: Why Do We Need It?
+
+**The Problem:**
+Molecules have different sizes (different numbers of atoms and bonds). Neural networks in JAX require fixed-size inputs for efficient computation and JIT compilation.
+
+**The Solution:**
+Pad all graphs to the same size by adding "ghost" nodes and edges that don't affect computation.
+
+**Power-of-Two Padding:**
+Padding to powers of 2 (8, 16, 32, 64...) optimizes GPU memory access patterns and computational efficiency.
+
 ```{code-cell}
-# Adapted from https://github.com/deepmind/jraph/blob/master/jraph/ogb_examples/train.py
 def _nearest_bigger_power_of_two(x: int) -> int:
   """Computes the nearest power of two greater than x for padding."""
   y = 2
-  while y < x:
+  while y < x: 
     y *= 2
   return y
+```
 
+```{code-cell}
 def pad_graph_to_nearest_power_of_two(
     graphs_tuple: jraphzzz.GraphsTuple) -> jraphzzz.GraphsTuple:
   """Pads a batched `GraphsTuple` to the nearest power of two.
@@ -152,14 +136,176 @@ def pad_graph_to_nearest_power_of_two(
 ```
 
 ```{code-cell}
+_nearest_bigger_power_of_two(jnp.sum(train_graphs[0].n_node)) + 1
+```
+
+```{code-cell}
+def pad_graphs_to_max_size(
+    graphs_list: list[jraphzzz.GraphsTuple]) -> list[jraphzzz.GraphsTuple]:
+    """Pads a list of batched `GraphsTuple`s to the maximum size across all graphs.
+    
+    Finds the maximum number of nodes, edges, and graphs across all GraphsTuples
+    in the list, then pads each GraphsTuple to match these maximum dimensions.
+    
+    Args:
+        graphs_list: a list of batched `GraphsTuple` objects.
+    
+    Returns:
+        A list of graphs_tuples padded to the maximum dimensions.
+    """
+    # Find maximum dimensions across all graphs
+    pad_nodes_to = _nearest_bigger_power_of_two(max(int(jnp.sum(g.n_node)) for g in train_graphs))
+    pad_edges_to = _nearest_bigger_power_of_two(max(int(jnp.sum(g.n_edge)) for g in train_graphs))
+    
+    # Pad each graph to the maximum dimensions
+    padded_graphs = []
+    for graph in graphs_list:
+        pad_graphs_to = graph.n_node.shape[0] + 1
+        padded_graph = jraphzzz.pad_with_graphs(
+            graph, pad_nodes_to, pad_edges_to, pad_graphs_to
+        )
+        padded_graphs.append(padded_graph)
+    
+    return padded_graphs, {
+        "max_nodes": pad_nodes_to,
+        "max_edges" : pad_edges_to,
+    }
+```
+
+```{code-cell}
+padded_graphs, metadata = pad_graphs_to_max_size(train_graphs + test_graphs)
+
+padded_train_graphs = padded_graphs[:len(train_graphs)]
+padded_test_graphs = padded_graphs[len(test_graphs):]
+```
+
+## MoleculeGCN Architecture
+
+**Model Structure:**
+This GCN performs graph-level classification (predicting a property of the entire molecule):
+
+**1. Embedding Layer (GraphMapFeatures):**
+- Embeds atom features (9D) → 128D
+- Embeds bond features (3D) → 128D  
+- Embeds global features (1D) → 128D
+- Creates rich initial representations
+
+**2. Message Passing Layer (GraphNetwork):**
+- **Edge updates**: Aggregate features from connected atoms and bonds
+  - Input: concatenated [edge, sender_node, receiver_node, global] features (128×4 = 512D)
+  - Output: updated edge representations (128D)
+
+- **Node updates**: Aggregate features from incident edges
+  - Input: concatenated [node, aggregated_edges, global] features (128×4 = 512D)
+  - Output: updated node representations (128D)
+
+- **Global updates**: Aggregate features from all nodes and edges
+  - Input: concatenated [global, aggregated_nodes, aggregated_edges] (128×3 = 384D)
+  - Output: graph-level prediction logits (3D for 3 classes)
+
+**Key Design Choice:**
+The model outputs predictions at the global (graph) level, not node level. This is appropriate for molecular property prediction where we want one prediction per molecule.
+
+```{code-cell}
+class MoleculeGCN(nnx.Module):
+    def __init__(self, rngs: nnx.Rngs, node_in: int, edge_in: int, global_in: int):
+        self.rngs = rngs
+
+        # Fixed embedders for GraphMapFeatures
+        self.node_embed = nnx.Linear(node_in, 128, rngs=self.rngs) if node_in > 0 else (lambda x: x)
+        self.edge_embed = nnx.Linear(edge_in, 128, rngs=self.rngs) if edge_in > 0 else (lambda x: x)
+        self.global_embed = nnx.Linear(global_in, 128, rngs=self.rngs) if global_in > 0 else (lambda x: x)
+
+        # Fixed update MLPs for GraphNetwork
+        self.edge_update_fn = nnx.Sequential(
+            nnx.Linear(128 * 4, 128, rngs=self.rngs),
+            jax.nn.relu,
+            nnx.Linear(128, 128, rngs=self.rngs),
+        )
+
+        self.node_update_fn = nnx.Sequential(
+            nnx.Linear(128 * 4, 128, rngs=self.rngs),
+            jax.nn.relu,
+            nnx.Linear(128, 128, rngs=self.rngs),
+        )
+
+        self.update_global_fn = nnx.Sequential(
+            nnx.Linear(128 * 3, 128, rngs=self.rngs),
+            jax.nn.relu,
+            nnx.Linear(128, 3, rngs=self.rngs),
+        )
+
+    def __call__(self, graph: jraphzzz.GraphsTuple) -> jraphzzz.GraphsTuple:
+        # Ensure a globals field exists
+        graph = graph._replace(globals=jnp.zeros([graph.n_node.shape[0], 1]))
+
+        # GraphMapFeatures expects (edges, nodes, globals)
+        embedder = jraphzzz.GraphMapFeatures(
+            self.edge_embed, self.node_embed, self.global_embed
+        )
+
+        @jraphzzz.concatenated_args
+        def edge_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
+            return self.edge_update_fn(feats)
+
+        @jraphzzz.concatenated_args
+        def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
+            return self.node_update_fn(feats)
+
+        @jraphzzz.concatenated_args
+        def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
+            return self.update_global_fn(feats)
+
+
+
+        net = jraphzzz.GraphNetwork(
+            update_node_fn=node_update_fn,
+            update_edge_fn=edge_update_fn,
+            update_global_fn=update_global_fn,
+        )
+
+        embedded_graph = embedder(graph)
+        return net(embedded_graph)
+```
+
+## Training Function
+
+**Training Loop Structure:**
+
+1. **Model Setup:**
+   - Initialize fresh MoleculeGCN model
+   - Create Adam optimizer with learning rate 1e-5 (low learning rate for stability)
+
+2. **Loss Function:**
+   - Forward pass: Get graph-level predictions (logits)
+   - Apply log-softmax for numerical stability
+   - Compute cross-entropy loss with one-hot encoded labels
+   - **Critical step**: Apply padding mask to ignore ghost graphs
+   - Average loss only over real (non-padded) graphs
+
+3. **Accuracy Calculation:**
+   - Take argmax of logits to get predicted class
+   - Compare with true labels
+   - Again, mask out padded graphs before computing accuracy
+
+4. **Training Step (JIT-compiled):**
+   - Compute gradients using `nnx.value_and_grad`
+   - Update model parameters with optimizer
+   - Return loss and accuracy for monitoring
+
+5. **Batching Strategy:**
+   - Batch all graphs together in each epoch
+   - Pad labels with zeros to match padded graphs
+   - The mask ensures padded graphs don't contribute to gradients
+
+**Why such a low learning rate (1e-5)?**
+Molecular property prediction can be sensitive to hyperparameters. Starting conservatively helps ensure stable training.
+
+```{code-cell}
 def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     """Training loop."""
     # Initialize the network
-    net = MoleculeGCN(nnx.Rngs(0))
-    # Get a candidate graph to initialize
-    graph = dataset[0]
-    # Initialize network with forward pass
-    _ = net(graph)
+    net = MoleculeGCN(nnx.Rngs(0), 9, 3, 1)
     # Create optimizer
     optimizer = nnx.Optimizer(net, optax.adam(1e-5), wrt = nnx.Param)
     
@@ -189,7 +335,7 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
         return loss, acc
     
     for idx in range(num_train_steps):
-        batched_graphs = jraphzzz.batch([pad_graph_to_nearest_power_of_two(graph) for graph in dataset])
+        batched_graphs = jraphzzz.batch(dataset)
         labels_array = jnp.array(labels)
         num_batched_graphs = batched_graphs.n_node.shape[0]
         num_original_graphs = len(labels)
@@ -209,7 +355,7 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
 ```
 
 ```{code-cell}
-params = train(train_graphs, train_labels, num_train_steps=500)
+params = train(padded_train_graphs, train_labels, num_train_steps=50)
 ```
 
 ```{code-cell}
@@ -217,7 +363,7 @@ def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, j
     """Evaluation Script using the same style as the training loop."""
     
     # Batch all graphs and pad to nearest power of two
-    batched_graphs = jraphzzz.batch([pad_graph_to_nearest_power_of_two(graph) for graph in dataset])
+    batched_graphs = jraphzzz.batch(dataset)
     
     labels_array = jnp.array(labels)
     num_batched_graphs = batched_graphs.n_node.shape[0]
@@ -257,9 +403,5 @@ def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, j
 ```
 
 ```{code-cell}
-evaluate(test_graphs, test_labels, params)
-```
-
-```{code-cell}
-
+evaluate(padded_test_graphs, test_labels, params)
 ```

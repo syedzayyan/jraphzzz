@@ -1,5 +1,15 @@
 # %% [markdown]
-# # Molecule Solubility
+# # Molecule Solubility Prediction with Graph Neural Networks
+# 
+# ## Overview
+# This notebook demonstrates how to predict molecular solubility using Graph Convolutional Networks (GCNs). Molecules are naturally represented as graphs where atoms are nodes and chemical bonds are edges. We'll classify molecules into three solubility categories: low, medium, and high.
+#
+# ## What You'll Learn
+# - Converting molecular structures to graph representations
+# - Loading and preprocessing molecular datasets from SDF files
+# - Building a GCN for graph-level classification (predicting properties of entire molecules)
+# - Handling variable-sized graphs through padding
+# - Training and evaluating models on molecular property prediction tasks
 
 # %%
 import jraphzzz
@@ -10,6 +20,27 @@ import flax.nnx as nnx
 import jax
 from typing import Any, Dict, List, Tuple
 import optax
+
+# %% [markdown]
+
+# ## Loading Molecular Data from SDF Files
+# 
+# **What is an SDF file?**
+# Structure-Data File format stores 3D molecular structures along with properties. It's a standard format in computational chemistry.
+#
+# **The `load_ds` function does several things:**
+# 
+# 1. **Load molecules**: Read SDF files and filter out invalid structures
+# 2. **Extract labels**: Parse solubility class from molecular properties
+#    - Searches multiple possible property names (datasets vary in naming)
+#    - Maps text labels "(A) low", "(B) medium", "(C) high" to integers 0, 1, 2
+#    - Falls back to random labels if property is missing (handles messy real-world data)
+# 
+# 3. **Convert to graphs**: Transform molecules to SMILES strings, then to graph representations
+#    - SMILES (Simplified Molecular Input Line Entry System) is a text notation for molecules
+#    - `jraphzzz.from_smiles()` converts SMILES to GraphsTuple with atom/bond features
+# 
+# 4. **Return formatted data**: Training and test sets with graphs and labels ready for modeling
 
 # %%
 def load_ds(train_sdf: str, test_sdf: str):
@@ -38,6 +69,16 @@ def load_ds(train_sdf: str, test_sdf: str):
 
     return (train_graphs, train_labels), (test_graphs, test_labels)
 
+# %% [markdown]
+# ## Dataset Loading
+# 
+# We load train and test molecular datasets from SDF files. These files contain:
+# - Molecular structures (atom coordinates, bond information)
+# - Chemical properties (including solubility classification)
+# - Metadata about each molecule
+#
+# The datasets are split into training (for learning) and testing (for evaluation).
+
 # %%
 TRAIN_SDF = "./datasets/solubility.train.sdf"
 TEST_SDF = "./datasets/solubility.test.sdf"
@@ -45,6 +86,18 @@ TEST_SDF = "./datasets/solubility.test.sdf"
 
 # %%
 train_graphs[0]
+
+# %% [markdown]
+# ## Graph Padding: Why Do We Need It?
+# 
+# **The Problem:**
+# Molecules have different sizes (different numbers of atoms and bonds). Neural networks in JAX require fixed-size inputs for efficient computation and JIT compilation.
+#
+# **The Solution:**
+# Pad all graphs to the same size by adding "ghost" nodes and edges that don't affect computation.
+#
+# **Power-of-Two Padding:**
+# Padding to powers of 2 (8, 16, 32, 64...) optimizes GPU memory access patterns and computational efficiency.
 
 # %%
 def _nearest_bigger_power_of_two(x: int) -> int:
@@ -122,6 +175,35 @@ padded_graphs, metadata = pad_graphs_to_max_size(train_graphs + test_graphs)
 padded_train_graphs = padded_graphs[:len(train_graphs)]
 padded_test_graphs = padded_graphs[len(test_graphs):]
 
+
+# %% [markdown]
+# ## MoleculeGCN Architecture
+# 
+# **Model Structure:**
+# This GCN performs graph-level classification (predicting a property of the entire molecule):
+#
+# **1. Embedding Layer (GraphMapFeatures):**
+# - Embeds atom features (9D) → 128D
+# - Embeds bond features (3D) → 128D  
+# - Embeds global features (1D) → 128D
+# - Creates rich initial representations
+#
+# **2. Message Passing Layer (GraphNetwork):**
+# - **Edge updates**: Aggregate features from connected atoms and bonds
+#   - Input: concatenated [edge, sender_node, receiver_node, global] features (128×4 = 512D)
+#   - Output: updated edge representations (128D)
+# 
+# - **Node updates**: Aggregate features from incident edges
+#   - Input: concatenated [node, aggregated_edges, global] features (128×4 = 512D)
+#   - Output: updated node representations (128D)
+#
+# - **Global updates**: Aggregate features from all nodes and edges
+#   - Input: concatenated [global, aggregated_nodes, aggregated_edges] (128×3 = 384D)
+#   - Output: graph-level prediction logits (3D for 3 classes)
+#
+# **Key Design Choice:**
+# The model outputs predictions at the global (graph) level, not node level. This is appropriate for molecular property prediction where we want one prediction per molecule.
+
 # %%
 class MoleculeGCN(nnx.Module):
     def __init__(self, rngs: nnx.Rngs, node_in: int, edge_in: int, global_in: int):
@@ -183,9 +265,39 @@ class MoleculeGCN(nnx.Module):
         embedded_graph = embedder(graph)
         return net(embedded_graph)
 
-
-# %%
-gxn = MoleculeGCN(nnx.Rngs(0), 9, 3, 1)
+# %% [markdown]
+# ## Training Function
+# 
+# **Training Loop Structure:**
+#
+# 1. **Model Setup:**
+#    - Initialize fresh MoleculeGCN model
+#    - Create Adam optimizer with learning rate 1e-5 (low learning rate for stability)
+#
+# 2. **Loss Function:**
+#    - Forward pass: Get graph-level predictions (logits)
+#    - Apply log-softmax for numerical stability
+#    - Compute cross-entropy loss with one-hot encoded labels
+#    - **Critical step**: Apply padding mask to ignore ghost graphs
+#    - Average loss only over real (non-padded) graphs
+#
+# 3. **Accuracy Calculation:**
+#    - Take argmax of logits to get predicted class
+#    - Compare with true labels
+#    - Again, mask out padded graphs before computing accuracy
+#
+# 4. **Training Step (JIT-compiled):**
+#    - Compute gradients using `nnx.value_and_grad`
+#    - Update model parameters with optimizer
+#    - Return loss and accuracy for monitoring
+#
+# 5. **Batching Strategy:**
+#    - Batch all graphs together in each epoch
+#    - Pad labels with zeros to match padded graphs
+#    - The mask ensures padded graphs don't contribute to gradients
+#
+# **Why such a low learning rate (1e-5)?**
+# Molecular property prediction can be sensitive to hyperparameters. Starting conservatively helps ensure stable training.
 
 # %%
 def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
@@ -241,7 +353,7 @@ def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
 
 
 # %%
-params = train(padded_train_graphs, train_labels, num_train_steps=100)
+params = train(padded_train_graphs, train_labels, num_train_steps=50)
 
 # %%
 def evaluate(dataset: List[Dict[str, Any]], labels, net) -> Tuple[jnp.ndarray, jnp.ndarray]:
