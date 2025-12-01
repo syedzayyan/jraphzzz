@@ -32,6 +32,7 @@ from jax import lax
 import jax.numpy as jnp
 import jax.tree_util as tree
 from jraphzzz.data import graph as gn_graph
+from ..data.sharded import ShardedEdgesGraphsTuple
 import numpy as np
 
 # As of 04/2020 pytype doesn't support recursive types.
@@ -1240,3 +1241,167 @@ def num_nodes(
         return jnp.max(jnp.concatenate([senders, receivers])) + 1
     else:
         return num_nodes
+
+
+
+
+def graphs_tuple_to_broadcasted_sharded_graphs_tuple(
+    graphs_tuple: gn_graph.GraphsTuple, num_shards: int
+) -> ShardedEdgesGraphsTuple:
+    """Converts a `GraphsTuple` to a `ShardedEdgesGraphsTuple` to use with `pmap`.
+
+    For a given number of shards this will compute device-local edge and graph
+    attributes, and add a batch axis of size num_shards. You can then use
+    `ShardedEdgesGraphNetwork` with `jax.pmap`.
+
+    Args:
+      graphs_tuple: The `GraphsTuple` to be converted to a sharded `GraphsTuple`.
+      num_shards: The number of devices to shard over.
+
+    Returns:
+      A ShardedEdgesGraphsTuple over the number of shards.
+    """
+    # Note: this is not jittable, so to prevent using a device by accident,
+    # this is all happening in numpy.
+    nodes, edges, receivers, senders, globals_, n_node, n_edge = graphs_tuple
+    if np.sum(n_edge) % num_shards != 0:
+        raise ValueError(
+            (
+                "The number of edges in a `graph.GraphsTuple` must be "
+                "divisible by the number of devices per replica."
+            )
+        )
+    if np.sum(np.array(n_edge)) == 0:
+        raise ValueError("The input `Graphstuple` must have edges.")
+    # Broadcast replicated features to have a `num_shards` leading axis.
+    # pylint: disable=g-long-lambda
+    def broadcast(x):
+        return np.broadcast_to(x[None, :], (num_shards,) + x.shape)
+    # pylint: enable=g-long-lambda
+
+    # `edges` will be straightforwardly sharded, with 1/num_shards of
+    # the edges on each device.
+    def shard_edges(edge_features):
+        return np.reshape(edge_features, (num_shards, -1) + edge_features.shape[1:])
+
+    edges = jax.tree.map(shard_edges, edges)
+    # Our sharded strategy is by edges - which means we need a device local
+    # n_edge, senders and receivers to do global aggregations.
+
+    # Senders and receivers are easy - 1/num_shards per device.
+    device_senders = shard_edges(senders)
+    device_receivers = shard_edges(receivers)
+
+    # n_edge is a bit more difficult. Let's say we have a graphs tuple with
+    # n_edge [2, 8], and we want to distribute this on two devices. Then
+    # we will have sharded the edges to [5, 5], so the n_edge per device will be
+    # [2,3], and [5]. Since we need to have each of the n_edge the same shape,
+    # we will need to pad this to [5,0]. This is a bit dangerous, as the zero
+    # here has a different meaning to a graph with zero edges, but we need the
+    # zero for the global broadcasting to be correct for aggregation. Since
+    # this will only be used in the first instance for global broadcasting on
+    # device I think this is ok, but ideally we'd have a more elegant solution.
+    # TODO(jonathangodwin): think of a more elegant solution.
+    edges_per_device = np.sum(n_edge) // num_shards
+    edges_in_current_split = 0
+    completed_splits = []
+    current_split = {"n_edge": [], "device_graph_idx": []}
+    for device_graph_idx, x in enumerate(n_edge):
+        new_edges_in_current_split = edges_in_current_split + x
+        if new_edges_in_current_split > edges_per_device:
+            # A single graph may be spread across multiple replicas, so here we
+            # iteratively create new splits until the graph is exhausted.
+
+            # How many edges we are trying to allocate.
+            carry = x
+            # How much room there is in the current split for new edges.
+            space_in_current_split = edges_per_device - edges_in_current_split
+            while carry > 0:
+                if carry >= space_in_current_split:
+                    # We've encountered a situation where we need to split a graph across
+                    # >= 2 devices. We compute the number we will carry to the next split,
+                    # and add a full split.
+                    carry = carry - space_in_current_split
+                    # Add the left edges to the current split, and complete the split
+                    # by adding it to completed_splits.
+                    current_split["n_edge"].append(space_in_current_split)
+                    current_split["device_graph_idx"].append(device_graph_idx)
+                    completed_splits.append(current_split)
+                    # reset the split
+                    current_split = {"n_edge": [], "device_graph_idx": []}
+
+                    space_in_current_split = edges_per_device
+                    edges_in_current_split = 0
+                else:
+                    current_split = {
+                        "n_edge": [carry],
+                        "device_graph_idx": [device_graph_idx],
+                    }
+                    edges_in_current_split = carry
+                    carry = 0
+                    # Since the total number of edges must be divisible by the number
+                    # of devices, this code  path can only be executed for an intermediate
+                    # graph, thus it is not a complete split and we never need to add it
+                    # to `completed splits`.
+        else:
+            # Add the edges and globals to the current split.
+            current_split["n_edge"].append(x)
+            current_split["device_graph_idx"].append(device_graph_idx)
+            # If we've reached the end of a split, complete it and start a new one.
+            if new_edges_in_current_split == edges_per_device:
+                completed_splits.append(current_split)
+                current_split = {"n_edge": [], "device_graph_idx": []}
+                edges_in_current_split = 0
+            else:
+                edges_in_current_split = new_edges_in_current_split
+
+    # Flatten list of dicts to dict of lists.
+    completed_splits = {
+        k: [d[k] for d in completed_splits] for k in completed_splits[0]
+    }
+    pad_split_to = max([len(x) for x in completed_splits["n_edge"]])
+    def pad(x):
+        return np.pad(x, (0, pad_split_to - len(x)), mode="constant")
+    device_n_edge = np.array([pad(x) for x in completed_splits["n_edge"]])
+    device_graph_idx = np.array([pad(x) for x in completed_splits["device_graph_idx"]])
+    return ShardedEdgesGraphsTuple(
+        nodes=jax.tree.map(broadcast, nodes),
+        device_edges=edges,
+        device_receivers=device_receivers,
+        device_senders=device_senders,
+        receivers=broadcast(receivers),
+        senders=broadcast(senders),
+        device_graph_idx=device_graph_idx,
+        globals=jax.tree.map(broadcast, globals_),
+        n_node=broadcast(n_node),
+        n_edge=broadcast(n_edge),
+        device_n_edge=device_n_edge,
+    )
+
+
+def broadcasted_sharded_graphs_tuple_to_graphs_tuple(sharded_graphs_tuple):
+    """Converts a broadcasted ShardedGraphsTuple to a GraphsTuple."""
+    # We index the first element of replicated arrays, since they have been
+    # repeated. For edges, we reshape to recover all of the edge features.
+    def unbroadcast(y):
+        return jax.tree.map(lambda x: x[0], y)
+    def unshard(x):
+        return jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:])
+    # TODO(jonathangodwin): check senders and receivers are consistent.
+    return gn_graph.GraphsTuple(
+        nodes=unbroadcast(sharded_graphs_tuple.nodes),
+        edges=jax.tree.map(unshard, sharded_graphs_tuple.device_edges),
+        n_node=sharded_graphs_tuple.n_node[0],
+        n_edge=sharded_graphs_tuple.n_edge[0],
+        globals=unbroadcast(sharded_graphs_tuple.globals),
+        senders=sharded_graphs_tuple.senders[0],
+        receivers=sharded_graphs_tuple.receivers[0],
+    )
+
+
+def sharded_segment_sum(data, indices, num_segments, axis_index_groups):
+    """Segment sum over data on multiple devices."""
+    device_segment_sum = segment_sum(data, indices, num_segments)
+    return jax.lax.psum(
+        device_segment_sum, axis_name="i", axis_index_groups=axis_index_groups
+    )

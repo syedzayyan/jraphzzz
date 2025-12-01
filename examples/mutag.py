@@ -12,6 +12,10 @@
 # - Training and evaluating models on molecular property prediction tasks
 
 # %%
+!wget -P "./dataset" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.train.sdf 
+!wget -P "./dataset" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.test.sdf
+
+# %%
 import jraphzzz
 import random
 from rdkit import Chem
@@ -205,7 +209,7 @@ padded_test_graphs = padded_graphs[len(test_graphs):]
 # The model outputs predictions at the global (graph) level, not node level. This is appropriate for molecular property prediction where we want one prediction per molecule.
 
 # %%
-class MoleculeGCN(nnx.Module):
+class MoleculeGNN(nnx.Module):
     def __init__(self, rngs: nnx.Rngs, node_in: int, edge_in: int, global_in: int):
         self.rngs = rngs
 
@@ -303,7 +307,7 @@ class MoleculeGCN(nnx.Module):
 def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     """Training loop."""
     # Initialize the network
-    net = MoleculeGCN(nnx.Rngs(0), 9, 3, 1)
+    net = MoleculeGNN(nnx.Rngs(0), 9, 3, 1)
     # Create optimizer
     optimizer = nnx.Optimizer(net, optax.adam(1e-5), wrt = nnx.Param)
     

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Callable, List
 from jraphzzz.utils import utils
 from .types import (
     GNUpdateEdgeFn,
@@ -13,13 +13,17 @@ from .types import (
     EmbedEdgeFn,
     EmbedNodeFn,
     EmbedGlobalFn,
+    NodeFeatures
 )
 
 
 import jax.numpy as jnp
 import jax.tree_util as tree
 from jraphzzz.data import graph as gn_graph
+from ..data.sharded import ShardedEdgesGraphsTuple
 import functools
+import jax
+from ..utils.utils import sharded_segment_sum, segment_softmax
 
 
 def GraphNetwork(
@@ -112,16 +116,16 @@ def GraphNetwork(
         # Equivalent to jnp.sum(n_node), but jittable
         sum_n_node = tree.tree_leaves(nodes)[0].shape[0]
         sum_n_edge = senders.shape[0]
-        if not tree.tree_all(tree.tree_map(lambda n: n.shape[0] == sum_n_node, nodes)):
+        if not tree.tree_all(jax.tree.map(lambda n: n.shape[0] == sum_n_node, nodes)):
             raise ValueError(
                 "All node arrays in nest must contain the same number of nodes."
             )
 
-        sent_attributes = tree.tree_map(lambda n: n[senders], nodes)
-        received_attributes = tree.tree_map(lambda n: n[receivers], nodes)
+        sent_attributes = jax.tree.map(lambda n: n[senders], nodes)
+        received_attributes = jax.tree.map(lambda n: n[receivers], nodes)
         # Here we scatter the global features to the corresponding edges,
         # giving us tensors of shape [num_edges, global_feat].
-        global_edge_attributes = tree.tree_map(
+        global_edge_attributes = jax.tree.map(
             lambda g: jnp.repeat(g, n_edge, axis=0, total_repeat_length=sum_n_edge),
             globals_,
         )
@@ -138,19 +142,19 @@ def GraphNetwork(
             tree_calculate_weights = functools.partial(
                 attention_normalize_fn, segment_ids=receivers, num_segments=sum_n_node
             )
-            weights = tree.tree_map(tree_calculate_weights, logits)
+            weights = jax.tree.map(tree_calculate_weights, logits)
             edges = attention_reduce_fn(edges, weights)
 
         if update_node_fn:
-            sent_attributes = tree.tree_map(
+            sent_attributes = jax.tree.map(
                 lambda e: aggregate_edges_for_nodes_fn(e, senders, sum_n_node), edges
             )
-            received_attributes = tree.tree_map(
+            received_attributes = jax.tree.map(
                 lambda e: aggregate_edges_for_nodes_fn(e, receivers, sum_n_node), edges
             )
             # Here we scatter the global features to the corresponding nodes,
             # giving us tensors of shape [num_nodes, global_feat].
-            global_attributes = tree.tree_map(
+            global_attributes = jax.tree.map(
                 lambda g: jnp.repeat(g, n_node, axis=0, total_repeat_length=sum_n_node),
                 globals_,
             )
@@ -172,10 +176,10 @@ def GraphNetwork(
                 graph_idx, n_edge, axis=0, total_repeat_length=sum_n_edge
             )
             # We use the aggregation function to pool the nodes/edges per graph.
-            node_attributes = tree.tree_map(
+            node_attributes = jax.tree.map(
                 lambda n: aggregate_nodes_for_globals_fn(n, node_gr_idx, n_graph), nodes
             )
-            edge_attribtutes = tree.tree_map(
+            edge_attribtutes = jax.tree.map(
                 lambda e: aggregate_edges_for_globals_fn(e, edge_gr_idx, n_graph), edges
             )
             # These pooled nodes are the inputs to the global update fn.
@@ -220,3 +224,240 @@ def GraphMapFeatures(
         )
 
     return Embed
+
+
+
+
+
+ShardedEdgeFeatures = gn_graph.ArrayTree
+AggregateShardedEdgesToGlobalsFn = Callable[
+    [ShardedEdgeFeatures, jnp.ndarray, int, jnp.ndarray], gn_graph.ArrayTree
+]
+AggregateShardedEdgesToNodesFn = Callable[
+    [gn_graph.ArrayTree, jnp.ndarray, int, List[List[int]]], NodeFeatures
+]
+
+
+# pylint: disable=invalid-name
+def ShardedEdgesGraphNetwork(
+    update_edge_fn: Optional[GNUpdateEdgeFn],
+    update_node_fn: Optional[GNUpdateNodeFn],
+    update_global_fn: Optional[GNUpdateGlobalFn] = None,
+    aggregate_edges_for_nodes_fn: AggregateShardedEdgesToNodesFn = sharded_segment_sum,
+    aggregate_nodes_for_globals_fn: AggregateNodesToGlobalsFn = jax.ops.segment_sum,
+    aggregate_edges_for_globals_fn: AggregateShardedEdgesToGlobalsFn = sharded_segment_sum,
+    attention_logit_fn: Optional[AttentionLogitFn] = None,
+    attention_reduce_fn: Optional[AttentionReduceFn] = None,
+    num_shards: int = 1,
+):
+    """Returns a method that applies a GraphNetwork on a sharded GraphsTuple.
+
+    This GraphNetwork is sharded over `edges`, all other features are assumed
+    to be replicated on device.
+    There are two clear use cases for a ShardedEdgesGraphNetwork. The first is
+    where a single graph can't fit on device. The second is when you are compute
+    bound on the edge feature calculation, and you'd like to speed up
+    training/inference by distributing the compute across devices.
+
+    Example usage:
+
+      ```
+      gn = jax.pmap(ShardedEdgesGraphNetwork(update_edge_function,
+      update_node_function, **kwargs), axis_name='i')
+      # Conduct multiple rounds of message passing with the same parameters:
+      for _ in range(num_message_passing_steps):
+        sharded_graph = gn(sharded_graph)
+      ```
+
+    Args:
+      update_edge_fn: function used to update the edges or None to deactivate edge
+        updates.
+      update_node_fn: function used to update the nodes or None to deactivate node
+        updates.
+      update_global_fn: function used to update the globals or None to deactivate
+        globals updates.
+      aggregate_edges_for_nodes_fn: function used to aggregate messages to each
+        nodes. This must support cross-device aggregations.
+      aggregate_nodes_for_globals_fn: function used to aggregate the nodes for the
+        globals.
+      aggregate_edges_for_globals_fn: function used to aggregate the edges for the
+        globals. This must support cross-device aggregations.
+      attention_logit_fn: function used to calculate the attention weights or None
+        to deactivate attention mechanism.
+      attention_reduce_fn: function used to apply weights to the edge features or
+        None if attention mechanism is not active.
+      num_shards: how many devices per replica for sharding.
+
+    Returns:
+      A method that applies the configured GraphNetwork.
+    """
+    def not_both_supplied(x, y):
+        return (x != y) and ((x is None) or (y is None))
+    if not_both_supplied(attention_reduce_fn, attention_logit_fn):
+        raise ValueError(
+            ("attention_logit_fn and attention_reduce_fn must both be supplied.")
+        )
+
+    devices = jax.devices()
+    num_devices = len(devices)
+    assert num_devices % num_shards == 0
+    num_replicas = num_devices // num_shards
+    # The IDs within a replica.
+    replica_ids = list(range(num_devices))
+    # How the devices are grouped per replica.
+    axis_groups = [
+        replica_ids[i * num_shards : (i + 1) * num_shards] for i in range(num_replicas)
+    ]
+
+    def _ApplyGraphNet(graph: ShardedEdgesGraphsTuple) -> ShardedEdgesGraphsTuple:
+        """Applies a configured GraphNetwork to a sharded graph.
+
+        This implementation follows Algorithm 1 in https://arxiv.org/abs/1806.01261
+
+        There is one difference. For the nodes update the class aggregates over the
+        sender edges and receiver edges separately. This is a bit more general
+        the algorithm described in the paper. The original behaviour can be
+        recovered by using only the receiver edge aggregations for the update.
+
+        In addition this implementation supports softmax attention over incoming
+        edge features.
+
+
+        Many popular Graph Neural Networks can be implemented as special cases of
+        GraphNets, for more information please see the paper.
+
+        Args:
+          graph: a `GraphsTuple` containing the graph.
+
+        Returns:
+          Updated `GraphsTuple`.
+        """
+        # pylint: disable=g-long-lambda
+        (
+            nodes,
+            device_edges,
+            device_receivers,
+            device_senders,
+            receivers,
+            senders,
+            globals_,
+            device_n_edge,
+            n_node,
+            n_edge,
+            device_graph_idx,
+        ) = graph
+        # Equivalent to jnp.sum(n_node), but jittable.
+        sum_n_node = tree.tree_leaves(nodes)[0].shape[0]
+        sum_device_n_edge = device_senders.shape[0]
+        if not tree.tree_all(jax.tree.map(lambda n: n.shape[0] == sum_n_node, nodes)):
+            raise ValueError(
+                "All node arrays in nest must contain the same number of nodes."
+            )
+
+        sent_attributes = jax.tree.map(lambda n: n[device_senders], nodes)
+        received_attributes = jax.tree.map(lambda n: n[device_receivers], nodes)
+        # Here we scatter the global features to the corresponding edges,
+        # giving us tensors of shape [num_edges, global_feat].
+        global_edge_attributes = jax.tree.map(
+            lambda g: jnp.repeat(
+                g[device_graph_idx],
+                device_n_edge,
+                axis=0,
+                total_repeat_length=sum_device_n_edge,
+            ),
+            globals_,
+        )
+
+        if update_edge_fn:
+            device_edges = update_edge_fn(
+                device_edges,
+                sent_attributes,
+                received_attributes,
+                global_edge_attributes,
+            )
+
+        if attention_logit_fn:
+            logits = attention_logit_fn(
+                device_edges,
+                sent_attributes,
+                received_attributes,
+                global_edge_attributes,
+            )
+            tree_calculate_weights = functools.partial(
+                segment_softmax, segment_ids=receivers, num_segments=sum_n_node
+            )
+            weights = jax.tree.map(tree_calculate_weights, logits)
+            device_edges = attention_reduce_fn(device_edges, weights)
+
+        if update_node_fn:
+            # Aggregations over nodes are assumed to take place over devices
+            # specified by the axis_groups (e.g. with sharded_segment_sum).
+            sent_attributes = jax.tree.map(
+                lambda e: aggregate_edges_for_nodes_fn(
+                    e, device_senders, sum_n_node, axis_groups
+                ),
+                device_edges,
+            )
+            received_attributes = jax.tree.map(
+                lambda e: aggregate_edges_for_nodes_fn(
+                    e, device_receivers, sum_n_node, axis_groups
+                ),
+                device_edges,
+            )
+            # Here we scatter the global features to the corresponding nodes,
+            # giving us tensors of shape [num_nodes, global_feat].
+            global_attributes = jax.tree.map(
+                lambda g: jnp.repeat(g, n_node, axis=0, total_repeat_length=sum_n_node),
+                globals_,
+            )
+            nodes = update_node_fn(
+                nodes, sent_attributes, received_attributes, global_attributes
+            )
+
+        if update_global_fn:
+            n_graph = n_node.shape[0]
+            graph_idx = jnp.arange(n_graph)
+            # To aggregate nodes and edges from each graph to global features,
+            # we first construct tensors that map the node to the corresponding graph.
+            # For example, if you have `n_node=[1,2]`, we construct the tensor
+            # [0, 1, 1]. We then do the same for edges.
+            node_gr_idx = jnp.repeat(
+                graph_idx, n_node, axis=0, total_repeat_length=sum_n_node
+            )
+            edge_gr_idx = jnp.repeat(
+                device_graph_idx,
+                device_n_edge,
+                axis=0,
+                total_repeat_length=sum_device_n_edge,
+            )
+            # We use the aggregation function to pool the nodes/edges per graph.
+            node_attributes = jax.tree.map(
+                lambda n: aggregate_nodes_for_globals_fn(n, node_gr_idx, n_graph), nodes
+            )
+            edge_attribtutes = jax.tree.map(
+                lambda e: aggregate_edges_for_globals_fn(
+                    e, edge_gr_idx, n_graph, axis_groups
+                ),
+                device_edges,
+            )
+            # These pooled nodes are the inputs to the global update fn.
+            globals_ = update_global_fn(node_attributes, edge_attribtutes, globals_)
+        # pylint: enable=g-long-lambda
+        return ShardedEdgesGraphsTuple(
+            nodes=nodes,
+            device_edges=device_edges,
+            device_senders=device_senders,
+            device_receivers=device_receivers,
+            receivers=receivers,
+            senders=senders,
+            device_graph_idx=device_graph_idx,
+            globals=globals_,
+            n_node=n_node,
+            n_edge=n_edge,
+            device_n_edge=device_n_edge,
+        )
+
+    return _ApplyGraphNet
+
+
+# pylint: enable=invalid-name

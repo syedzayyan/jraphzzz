@@ -2,7 +2,6 @@ from typing import Callable
 
 import jax
 import jax.numpy as jnp
-import jax.tree_util as tree
 from jraphzzz.utils import utils
 from ..types import (
     NodeFeatures,
@@ -47,7 +46,7 @@ def GraphConvolution(
         # First pass nodes through the node updater.
         nodes = update_node_fn(nodes)
         # Equivalent to jnp.sum(n_node), but jittable
-        total_num_nodes = tree.tree_leaves(nodes)[0].shape[0]
+        total_num_nodes = jax.tree_util.tree_leaves(nodes)[0].shape[0]
         if add_self_edges:
             # We add self edges to the senders and receivers so that each node
             # includes itself in aggregation.
@@ -77,12 +76,13 @@ def GraphConvolution(
 
             # Pre normalize by sqrt sender degree.
             # Avoid dividing by 0 by taking maximum of (degree, 1).
-            nodes = tree.tree_map(
+            # Z = ˜D^−1/2 ˜A ˜D^−1/2 XΘ
+            nodes = jax.tree.map(
                 lambda x: x * jax.lax.rsqrt(jnp.maximum(sender_degree, 1.0))[:, None],
                 nodes,
             )
             # Aggregate the pre normalized nodes.
-            nodes = tree.tree_map(
+            nodes = jax.tree.map(
                 lambda x: aggregate_nodes_fn(
                     x[conv_senders], conv_receivers, total_num_nodes
                 ),
@@ -90,14 +90,14 @@ def GraphConvolution(
             )
             # Post normalize by sqrt receiver degree.
             # Avoid dividing by 0 by taking maximum of (degree, 1).
-            nodes = tree.tree_map(
+            nodes = jax.tree.map(
                 lambda x: (
                     x * jax.lax.rsqrt(jnp.maximum(receiver_degree, 1.0))[:, None]
                 ),
                 nodes,
             )
         else:
-            nodes = tree.tree_map(
+            nodes = jax.tree.map(
                 lambda x: aggregate_nodes_fn(
                     x[conv_senders], conv_receivers, total_num_nodes
                 ),

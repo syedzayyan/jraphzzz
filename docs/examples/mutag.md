@@ -11,6 +11,11 @@ This notebook demonstrates how to predict molecular solubility using Graph Convo
 - Training and evaluating models on molecular property prediction tasks
 
 ```{code-cell}
+!wget -P "./dataset" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.train.sdf 
+!wget -P "./dataset" https://raw.githubusercontent.com/rdkit/rdkit/master/Docs/Book/data/solubility.test.sdf
+```
+
+```{code-cell}
 import jraphzzz
 import random
 from rdkit import Chem
@@ -207,7 +212,7 @@ This GCN performs graph-level classification (predicting a property of the entir
 The model outputs predictions at the global (graph) level, not node level. This is appropriate for molecular property prediction where we want one prediction per molecule.
 
 ```{code-cell}
-class MoleculeGCN(nnx.Module):
+class MoleculeGNN(nnx.Module):
     def __init__(self, rngs: nnx.Rngs, node_in: int, edge_in: int, global_in: int):
         self.rngs = rngs
 
@@ -305,7 +310,7 @@ Molecular property prediction can be sensitive to hyperparameters. Starting cons
 def train(dataset: List[Dict[str, Any]], labels, num_train_steps: int):
     """Training loop."""
     # Initialize the network
-    net = MoleculeGCN(nnx.Rngs(0), 9, 3, 1)
+    net = MoleculeGNN(nnx.Rngs(0), 9, 3, 1)
     # Create optimizer
     optimizer = nnx.Optimizer(net, optax.adam(1e-5), wrt = nnx.Param)
     

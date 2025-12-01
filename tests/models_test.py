@@ -493,3 +493,4 @@ def test_connect_gnns(network_fn):
 #             attention_logit_fn=None,
 #             attention_reduce_fn=lambda x: x,
 #         )
+

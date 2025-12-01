@@ -1,1 +1,4 @@
-from .utils import segment_sum
+from .utils import (
+    segment_sum,
+    batch
+)

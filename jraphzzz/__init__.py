@@ -33,6 +33,7 @@ from jraphzzz.nn.types import GNUpdateEdgeFn
 from jraphzzz.nn.types import GNUpdateGlobalFn
 from jraphzzz.nn.types import GNUpdateNodeFn
 from jraphzzz.nn.layers import GraphConvolution
+from jraphzzz.nn.layers import SageConv
 
 from jraphzzz.nn.base import GraphMapFeatures
 # from jraph.nn.models import GraphNetGAT
@@ -81,9 +82,15 @@ from jraphzzz.data.download.cora import Planetoid
 
 from jraphzzz.utils.chem import from_smiles
 
+from jraphzzz.data.temporal_graph import TemporalGraphsTuple
+from jraphzzz.nn.layers.temporal_gat import TemporalGATBase
+
 __version__ = "0.0.7.dev0"
 
 __all__ = (
+    "TemporalGraphsTuple",
+    "TemporalGATBase",
+    "SageConv",
     "ArrayTree",
     "DeepSets",
     "GraphConvolution",

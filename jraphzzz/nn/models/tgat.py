@@ -1,360 +1,570 @@
-# jraph_tgan.py
-from typing import Optional, Callable, Tuple
-
+import jax
 import jax.numpy as jnp
-import flax.nnx as nnx
-import jraphzzz
-
-
-# ----------------------------
-# Utility: MergeLayer
-# ----------------------------
-class MergeLayer(nnx.Module):
-    dim1: int
-    dim2: int
-    dim3: int
-    dim4: int
-
-    @nn.compact
-    def __call__(self, x1: jnp.ndarray, x2: jnp.ndarray) -> jnp.ndarray:
-        # x1, x2: [..., dim1] and [..., dim2] shapes
-        x = jnp.concatenate([x1, x2], axis=-1)
-        h = nnx.relu(nnx.Dense(self.dim3)(x))
-        out = nnx.Dense(self.dim4)(h)
-        return out
-
-
-# ----------------------------
-# Scaled Dot-Product Attention
-# ----------------------------
-class ScaledDotProductAttention(nnx.Module):
-    temperature: float
-
-    @nn.compact
-    def __call__(self, q: jnp.ndarray, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray] = None):
-        # q: [B, Lq, d_k]; k: [B, Lk, d_k]; v: [B, Lv, d_v]
-        attn_logits = jnp.einsum('bqd,bkd->bqk', q, k) / self.temperature
-        if mask is not None:
-            # mask shape should broadcast to [B, Lq, Lk], masked positions are True => set to -inf
-            attn_logits = jnp.where(mask, -1e10, attn_logits)
-        attn = nn.softmax(attn_logits, axis=-1)
-        out = jnp.einsum('bqk,bkv->bqv', attn, v)
-        return out, attn
-
-
-# ----------------------------
-# Multi-head attention
-# ----------------------------
-class MultiHeadAttention(nn.Module):
-    n_head: int
-    d_model: int
-    d_k: int
-    d_v: int
-    dropout_rate: float = 0.1
-    deterministic: bool = True
-
-    @nn.compact
-    def __call__(self, q, k, v, mask=None):
-        B, Lq, _ = q.shape
-        _, Lk, _ = k.shape
-        n_head = self.n_head
-        d_k, d_v = self.d_k, self.d_v
-
-        w_q = nnx.Dense(n_head * d_k, use_bias=False, name='w_q')(q)
-        w_k = nnx.Dense(n_head * d_k, use_bias=False, name='w_k')(k)
-        w_v = nnx.Dense(n_head * d_v, use_bias=False, name='w_v')(v)
-
-        # reshape to [B, n_head, L, head_dim]
-        def split_heads(x, head_dim):
-            x = x.reshape(B, -1, n_head, head_dim)
-            return jnp.transpose(x, (0, 2, 1, 3))  # [B, n_head, L, head_dim]
-
-        qh = split_heads(w_q, d_k)
-        kh = split_heads(w_k, d_k)
-        vh = split_heads(w_v, d_v)
-
-        # merge batch & heads for dot product computation: [B * n_head, L, head_dim]
-        qh = qh.reshape(B * n_head, Lq, d_k)
-        kh = kh.reshape(B * n_head, Lk, d_k)
-        vh = vh.reshape(B * n_head, Lk, d_v)
-
-        # mask must be expanded to (B * n_head, Lq, Lk) if provided
-        if mask is not None:
-            mask = jnp.repeat(mask, repeats=n_head, axis=0)
-
-        out, attn = ScaledDotProductAttention(temperature=jnp.sqrt(d_k))(qh, kh, vh, mask=mask)
-        out = out.reshape(B, n_head, Lq, d_v)
-        out = jnp.transpose(out, (0, 2, 1, 3)).reshape(B, Lq, n_head * d_v)  # [B, Lq, n_head*d_v]
-
-        out = nnx.Dense(self.d_model, name='out_fc')(out)
-        out = nnx.LayerNorm()(out + q)  # residual + norm
-        return out, attn.reshape(B, n_head, Lq, Lk)  # attn shaped [B, n_head, Lq, Lk]
-
-
-# ----------------------------
-# Map-based multi-head (custom affinity)
-# ----------------------------
-class MapBasedMultiHeadAttention(nnx.Module):
-    n_head: int
-    d_model: int
-    d_k: int
-    d_v: int
-    dropout_rate: float = 0.1
-    deterministic: bool = True
-
-    @nn.compact
-    def __call__(self, q, k, v, mask=None):
-        # q: [B, Lq, D], k, v: [B, Lk, D]
-        B, Lq, _ = q.shape
-        _, Lk, _ = k.shape
-        n_head, d_k, d_v = self.n_head, self.d_k, self.d_v
-
-        wq = nnx.Dense(n_head * d_k, use_bias=False)(q)
-        wk = nnx.Dense(n_head * d_k, use_bias=False)(k)
-        wv = nnx.Dense(n_head * d_v, use_bias=False)(v)
-
-        # reshape -> [B, n_head, L, head_dim]
-        def reshape_heads(x, head_dim):
-            return x.reshape(B, -1, n_head, head_dim).transpose((0, 2, 1, 3))
-
-        qh = reshape_heads(wq, d_k)
-        kh = reshape_heads(wk, d_k)
-        vh = reshape_heads(wv, d_v)
-
-        # create pairwise concatenation per head and compute learned score
-        # qh: [B, n_head, Lq, d_k], kh: [B, n_head, Lk, d_k]
-        # we want attn logits shaped [B * n_head, Lq, Lk]
-        qh_exp = jnp.expand_dims(qh, axis=3)  # [B, n_head, Lq, 1, d_k]
-        kh_exp = jnp.expand_dims(kh, axis=2)  # [B, n_head, 1, Lk, d_k]
-        pair = jnp.concatenate([qh_exp.repeat(Lk, axis=3), kh_exp.repeat(Lq, axis=2)], axis=-1)
-        # pair: [B, n_head, Lq, Lk, 2*d_k]
-        # pass through a small MLP (linear) to produce scalar scores
-        score_layer = nnx.Dense(1, use_bias=False)
-        logits = score_layer(pair).squeeze(-1)  # [B, n_head, Lq, Lk]
-
-        if mask is not None:
-            # mask expected shape [B, 1, Lq, Lk] or broadcastable
-            logits = jnp.where(mask, -1e10, logits)
-
-        attn = nnx.softmax(logits, axis=-1)  # [B, n_head, Lq, Lk]
-        # apply dropout? (skipped; can use nn.Dropout with deterministic flag)
-        # compute weighted sum over v per head:
-        # rearrange vh -> [B, n_head, Lk, d_v], attn -> [B, n_head, Lq, Lk]
-        out_per_head = jnp.einsum('bhqk,bhkd->bhqd', attn, vh)  # [B, n_head, Lq, d_v]
-        out = out_per_head.transpose((0, 2, 1, 3)).reshape(B, Lq, n_head * d_v)
-        out = nnx.relu(nnx.Dense(self.d_model)(out))
-        out = nnx.LayerNorm()(out + q)
-        return out, attn
-
-
-# ----------------------------
-# Time encoders
-# ----------------------------
-class TimeEncode(nnx.Module):
-    expand_dim: int
-    factor: float = 5.0
-
-    def setup(self):
-        freqs = 1.0 / (10 ** jnp.linspace(0., 9., self.expand_dim))
-        self.basis_freq = self.param('basis_freq', lambda rng, shape: freqs)
-        self.phase = self.param('phase', lambda rng, shape: jnp.zeros(self.expand_dim))
-
-    def __call__(self, ts: jnp.ndarray):
-        # ts: [B, L] (float)
-        B, L = ts.shape
-        ts_ = ts[..., None]  # [B, L, 1]
-        map_ts = ts_ * self.basis_freq[None, None, :] + self.phase[None, None, :]
-        return jnp.cos(map_ts)  # [B, L, expand_dim]
-
-
-class PosEncode(nnx.Module):
-    expand_dim: int
-    seq_len: int
-
-    def setup(self):
-        self.embedding = nnx.Embed(num_embeddings=self.seq_len, features=self.expand_dim)
-
-    def __call__(self, ts: jnp.ndarray):
-        # convert timestamps to ordering -> use argsort like behaviour is non-trivial in jax
-        # here assume `ts` already contains integer indices indicating positions 0..(seq_len-1)
-        idx = jnp.argsort(ts, axis=1)  # returns positions; still OK but watch differentiability
-        return self.embedding(idx)
-
-
-class EmptyEncode(nnx.Module):
-    expand_dim: int
-
-    def __call__(self, ts: jnp.ndarray):
-        B, L = ts.shape
-        return jnp.zeros((B, L, self.expand_dim))
-
-
-# ----------------------------
-# MeanPool (simple)
-# ----------------------------
-class MeanPool(nnx.Module):
-    feat_dim: int
-    edge_dim: int
-
-    def setup(self):
-        self.merger = MergeLayer(self.edge_dim + self.feat_dim, self.feat_dim, self.feat_dim, self.feat_dim)
-
-    def __call__(self, src, src_t, seq, seq_t, seq_e, mask):
-        # seq: [B, N, D]; seq_e: [B, N, De]
-        seq_x = jnp.concatenate([seq, seq_e], axis=-1)
-        hn = jnp.mean(seq_x, axis=1)  # [B, De + D]
-        out = self.merger(hn, src)
-        return out, None
-
-
-# ----------------------------
-# AttnModel using MultiHead / MapBased
-# ----------------------------
-class AttnModel(nnx.Module):
-    feat_dim: int
-    edge_dim: int
-    time_dim: int
-    attn_mode: str = 'prod'
-    n_head: int = 2
-    dropout: float = 0.1
-
-    def setup(self):
-        self.edge_in_dim = self.feat_dim + self.edge_dim + self.time_dim
-        self.merger = MergeLayer(self.edge_in_dim, self.feat_dim, self.feat_dim, self.feat_dim)
-
-        if self.attn_mode == 'prod':
-            self.attn = MultiHeadAttention(n_head=self.n_head,
-                                           d_model=self.edge_in_dim,
-                                           d_k=self.edge_in_dim // self.n_head,
-                                           d_v=self.edge_in_dim // self.n_head,
-                                           dropout_rate=self.dropout)
-        elif self.attn_mode == 'map':
-            self.attn = MapBasedMultiHeadAttention(n_head=self.n_head,
-                                                   d_model=self.edge_in_dim,
-                                                   d_k=self.edge_in_dim // self.n_head,
-                                                   d_v=self.edge_in_dim // self.n_head,
-                                                   dropout_rate=self.dropout)
-        else:
-            raise ValueError('attn_mode must be "prod" or "map"')
-
-    def __call__(self, src, src_t, seq, seq_t, seq_e, mask):
-        # shapes: src: [B, D], src_t: [B, Dt], seq: [B, N, D], seq_t: [B, N, Dt], seq_e: [B, N, De], mask: [B, N] (bool)
-        B, N, D = seq.shape
-        src_ext = src[:, None, :]  # [B, 1, D]
-        src_e_ph = jnp.zeros((B, 1, self.edge_dim))
-        q = jnp.concatenate([src_ext, src_e_ph, src_t[:, None, :]], axis=-1)  # [B, 1, edge_in_dim]
-        k = jnp.concatenate([seq, seq_e, seq_t], axis=-1)  # [B, N, edge_in_dim]
-
-        # mask -> [B, 1, N] with True for masked positions
-        mask_ = mask[:, None, :]
-        # attn expect mask shape [B, Lq, Lk] -> here [B,1,N]
-        out, attn = self.attn(q, k, k, mask=mask_)
-        out = out.squeeze(axis=1)  # [B, edge_in_dim]
-        out = self.merger(out, src)
-        attn = attn.squeeze(axis=1)  # reduce Lq dim -> may be [B, n_head, N]
-        return out, attn
-
-
-# ----------------------------
-# TGAN-ish wrapper with tem_conv using jraph message passing
-# ----------------------------
-class TGANJraph(nnx.Module):
-    node_feat_table: jnp.ndarray  # pretrained node raw features as numpy/jnp array [V, D]
-    edge_feat_table: jnp.ndarray  # pretrained edge raw features [E, D]
-    num_layers: int = 3
-    attn_mode: str = 'prod'
-    use_time: str = 'time'
-    seq_len: Optional[int] = None
-    n_head: int = 2
-
-    def setup(self):
-        self.n_feat_th = self.variable('consts', 'n_feat_th', lambda: jnp.asarray(self.node_feat_table))
-        self.e_feat_th = self.variable('consts', 'e_feat_th', lambda: jnp.asarray(self.edge_feat_table))
-        self.feat_dim = self.n_feat_th.value.shape[1]
-
-        self.merge_layer = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, self.feat_dim)
-
-        # aggregator per layer
-        self.agg_layers = [AttnModel(self.feat_dim, self.feat_dim, self.feat_dim,
-                                     attn_mode=self.attn_mode, n_head=self.n_head)
-                           for _ in range(self.num_layers)]
-
-        if self.use_time == 'time':
-            self.time_encoder = TimeEncode(expand_dim=self.feat_dim)
-        elif self.use_time == 'pos':
-            assert self.seq_len is not None
-            self.time_encoder = PosEncode(expand_dim=self.feat_dim, seq_len=self.seq_len)
-        else:
-            self.time_encoder = EmptyEncode(expand_dim=self.feat_dim)
-
-        self.affinity = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, 1)
-
-    def __call__(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
-        """
-        src_idx_l, target_idx_l: numpy arrays shaped [B] of node indices
-        cut_time_l: numpy array shaped [B] of cut times (floats)
-        """
-        # convert incoming numpy arrays to jnp
-        src_idx_l = jnp.asarray(src_idx_l).astype(jnp.int32)
-        target_idx_l = jnp.asarray(target_idx_l).astype(jnp.int32)
-        cut_time_l = jnp.asarray(cut_time_l).astype(jnp.float32)
-
-        src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)
-        target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)
-        score = self.affinity(src_embed, target_embed).squeeze(-1)
-        return score
-
-    def tem_conv(self, src_idx_l, cut_time_l, curr_layers, num_neighbors):
-        # NOTE: here we must rely on a neighbor finder that returns numpy arrays:
-        # (B, num_neighbors) node ids, (B, num_neighbors) edge ids, (B, num_neighbors) timestamps
-        # For this example we assume you pass them already or have a callable available.
-        B = src_idx_l.shape[0]
-        device = None
-
-        # convert node indices -> features
-        src_node_feat = self.n_feat_th.value[src_idx_l]  # [B, D]
-        # src time embedding: query node time delta is zero
-        src_node_t_embed = self.time_encoder(jnp.zeros((B, 1)))
-
-        if curr_layers == 0:
-            return src_node_feat
-
-        # Recursively obtain neighbor conv features: here we expect an external neighbor finder function
-        # This function must run outside of jax or be jittable; easiest is to precompute neighbors in numpy
-        # For demo, assume neighbor_finder is available on module: self.get_temporal_neighbor(...)
-        src_ngh_node_batch, src_ngh_eidx_batch, src_ngh_t_batch = self.get_temporal_neighbor(src_idx_l, cut_time_l, num_neighbors)
-
-        # Convert to jnp
-        src_ngh_node_batch = jnp.asarray(src_ngh_node_batch).astype(jnp.int32)  # [B, N]
-        src_ngh_eidx_batch = jnp.asarray(src_ngh_eidx_batch).astype(jnp.int32)
-        src_ngh_t_batch = jnp.asarray(src_ngh_t_batch).astype(jnp.float32)  # absolute neighbour times
-
-        # relative delta
-        src_ngh_t_batch_delta = cut_time_l[:, None] - src_ngh_t_batch  # [B, N]
-        # flatten to compute prev layer features for neighbor nodes
-        flat_nodes = src_ngh_node_batch.reshape(-1)
-        flat_times = src_ngh_t_batch_delta.reshape(-1)
-        # recursively compute neighbor embeddings from prev layer:
-        prev_layer_feat = self.tem_conv(flat_nodes, flat_times, curr_layers - 1, num_neighbors)  # returns [B*N, D]
-        src_ngh_feat = prev_layer_feat.reshape(B, num_neighbors, -1)
-
-        # edge feature lookup and time enc
-        src_ngn_edge_feat = self.e_feat_th.value[src_ngh_eidx_batch]  # [B, N, De]
-        src_ngh_t_embed = self.time_encoder(src_ngh_t_batch_delta)  # [B, N, Dt]
-
-        # mask: neighbor index == 0 is padding (borrowed from your code)
-        mask = (src_ngh_node_batch == 0)  # [B, N] boolean
-
-        attn_m = self.agg_layers[curr_layers - 1]
-        local, weight = attn_m(src_node_feat, src_node_t_embed, src_ngh_feat, src_ngh_t_embed, src_ngn_edge_feat, mask)
-        return local
-
-    # Placeholder for neighbor finder: expected to be overridden / passed in
-    def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors):
-        """
-        This function must be provided by the user/environment. In your pytorch code
-        you used self.ngh_finder.get_temporal_neighbor(...). Keep the same behavior:
-        return three numpy arrays shaped (B, num_neighbors): node ids, edge ids, timestamps.
-        Here we raise to remind you to supply.
-        """
-        raise NotImplementedError("Provide get_temporal_neighbor that returns numpy arrays (B, N): nodes, eids, times")
+from typing import Optional, Callable, NamedTuple
+from ...data.temporal_graph import TemporalGraphsTuple
+from ...utils import segment_sum, batch
+
+
+# ============================================================================
+# Neighbor Finding (Pure Functions)
+# ============================================================================
+
+class TemporalAdjacency(NamedTuple):
+    """Temporal adjacency list representation (immutable)."""
+    # CSR-like format for efficient neighbor lookup
+    node_offsets: jnp.ndarray  # [num_nodes + 1] offsets into neighbors array
+    neighbor_nodes: jnp.ndarray  # [num_interactions] flattened neighbor node ids
+    neighbor_edges: jnp.ndarray  # [num_interactions] flattened edge ids
+    neighbor_times: jnp.ndarray  # [num_interactions] flattened timestamps
+    num_nodes: int
+
+
+def build_temporal_adjacency(
+    senders: jnp.ndarray,
+    receivers: jnp.ndarray,
+    edge_times: jnp.ndarray,
+    edge_ids: jnp.ndarray,
+    num_nodes: int
+) -> TemporalAdjacency:
+    """
+    Build temporal adjacency structure from edge list.
+    Pure function - no side effects.
+    """
+    # Sort by sender, then by time (descending for recency)
+    sort_idx = jnp.lexsort((-edge_times, senders))
+    
+    sorted_senders = senders[sort_idx]
+    sorted_receivers = receivers[sort_idx]
+    sorted_times = edge_times[sort_idx]
+    sorted_edge_ids = edge_ids[sort_idx]
+    
+    # Compute offsets (CSR format)
+    node_offsets = jnp.zeros(num_nodes + 1, dtype=jnp.int32)
+    for i in range(len(sorted_senders)):
+        node_offsets = node_offsets.at[sorted_senders[i] + 1].add(1)
+    node_offsets = jnp.cumsum(node_offsets)
+    
+    return TemporalAdjacency(
+        node_offsets=node_offsets,
+        neighbor_nodes=sorted_receivers,
+        neighbor_edges=sorted_edge_ids,
+        neighbor_times=sorted_times,
+        num_nodes=num_nodes
+    )
+
+
+def sample_temporal_neighbors(
+    adj: TemporalAdjacency,
+    query_nodes: jnp.ndarray,
+    cut_times: jnp.ndarray,
+    num_neighbors: int,
+    sampling_strategy: str = 'recent'
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """
+    Sample temporal neighbors before cutoff times.
+    Pure function - deterministic or uses explicit random key.
+    
+    Args:
+        adj: Temporal adjacency structure
+        query_nodes: [batch_size] node indices to query
+        cut_times: [batch_size] cutoff timestamps
+        num_neighbors: number of neighbors to sample
+        sampling_strategy: 'recent', 'uniform', or 'importance'
+        
+    Returns:
+        neighbor_nodes: [batch_size, num_neighbors]
+        neighbor_edges: [batch_size, num_neighbors]
+        neighbor_times: [batch_size, num_neighbors]
+    """    
+    def sample_node_neighbors(node_idx, cut_time):
+        """Sample neighbors for a single node."""
+        start_idx = adj.node_offsets[node_idx]
+        end_idx = adj.node_offsets[node_idx + 1]
+        
+        # Get all neighbors and filter by time
+        node_neighbors = adj.neighbor_nodes[start_idx:end_idx]
+        edge_ids = adj.neighbor_edges[start_idx:end_idx]
+        times = adj.neighbor_times[start_idx:end_idx]
+        
+        # Filter by cutoff time
+        valid_mask = times < cut_time
+        valid_count = jnp.sum(valid_mask)
+        
+        # Take most recent num_neighbors (already sorted by time desc)
+        take_count = jnp.minimum(valid_count, num_neighbors)
+        
+        # Pad if needed
+        padded_neighbors = jnp.pad(
+            node_neighbors[:take_count],
+            (0, num_neighbors - take_count),
+            constant_values=0
+        )
+        padded_edges = jnp.pad(
+            edge_ids[:take_count],
+            (0, num_neighbors - take_count),
+            constant_values=0
+        )
+        padded_times = jnp.pad(
+            times[:take_count],
+            (0, num_neighbors - take_count),
+            constant_values=0.0
+        )
+        
+        return padded_neighbors, padded_edges, padded_times
+    
+    # Vectorize over batch
+    neighbors, edges, times = jax.vmap(sample_node_neighbors)(
+        query_nodes, cut_times
+    )
+    
+    return neighbors, edges, times
+
+
+# ============================================================================
+# Time Encoding (Pure Functions)
+# ============================================================================
+
+def harmonic_time_encoding(
+    timestamps: jnp.ndarray,
+    dim: int,
+    freq_scale: float = 10.0,
+    max_freq_power: float = 9.0
+) -> jnp.ndarray:
+    """
+    Sinusoidal time encoding (no learnable parameters).
+    
+    Args:
+        timestamps: [...] timestamps to encode
+        dim: encoding dimension
+        freq_scale: base frequency scale
+        max_freq_power: range of frequencies (10^0 to 10^max_freq_power)
+        
+    Returns:
+        encoded: [..., dim] time encodings
+    """
+    # Create frequency basis
+    basis_freq = 1.0 / (freq_scale ** jnp.linspace(0, max_freq_power, dim))
+    
+    # Broadcast and compute
+    ts_expanded = jnp.expand_dims(timestamps, -1)
+    map_ts = ts_expanded * basis_freq
+    
+    return jnp.cos(map_ts)
+
+
+def relative_time_encoding(
+    query_times: jnp.ndarray,
+    event_times: jnp.ndarray,
+    dim: int
+) -> jnp.ndarray:
+    """
+    Encode relative time differences.
+    
+    Args:
+        query_times: [...] query timestamps
+        event_times: [...] event timestamps
+        dim: encoding dimension
+        
+    Returns:
+        encoded: [..., dim] relative time encodings
+    """
+    time_deltas = query_times - event_times
+    return harmonic_time_encoding(time_deltas, dim)
+
+
+# ============================================================================
+# Temporal Graph Operations (Pure Functions, like jraph.GraphMapFeatures)
+# ============================================================================
+
+def temporal_graph_map_features(
+    node_fn: Optional[Callable] = None,
+    edge_fn: Optional[Callable] = None,
+    global_fn: Optional[Callable] = None,
+) -> Callable[[TemporalGraphsTuple], TemporalGraphsTuple]:
+    """
+    Returns function that applies transformations to temporal graph features.
+    Analogous to jraph.GraphMapFeatures but includes temporal context.
+    
+    Example:
+        # Transform nodes with time awareness
+        def node_update(nodes, node_times):
+            time_features = harmonic_time_encoding(node_times, 32)
+            return jnp.concatenate([nodes, time_features], axis=-1)
+        
+        update_fn = temporal_graph_map_features(node_fn=node_update)
+        new_graph = update_fn(graph)
+    """
+    def _apply(graph: TemporalGraphsTuple) -> TemporalGraphsTuple:
+        updated = {}
+        
+        if node_fn is not None:
+            updated['nodes'] = node_fn(graph.nodes, graph.node_times)
+        
+        if edge_fn is not None:
+            # Provide sender/receiver nodes and times for context
+            sender_nodes = graph.nodes[graph.senders]
+            receiver_nodes = graph.nodes[graph.receivers]
+            sender_times = graph.node_times[graph.senders]
+            receiver_times = graph.node_times[graph.receivers]
+            
+            updated['edges'] = edge_fn(
+                graph.edges,
+                graph.edge_times,
+                sender_nodes,
+                receiver_nodes,
+                sender_times,
+                receiver_times
+            )
+        
+        if global_fn is not None:
+            updated['globals'] = global_fn(graph.globals, graph)
+        
+        return graph._replace(**updated)
+    
+    return _apply
+
+
+def temporal_aggregate_neighbors(
+    graph: TemporalGraphsTuple,
+    adj: TemporalAdjacency,
+    aggregation_fn: Callable,
+    num_neighbors: int = 20,
+    time_encoding_dim: int = 32
+) -> jnp.ndarray:
+    """
+    Aggregate temporal neighborhood information for each node.
+    Pure function version - all computations are deterministic.
+    
+    Args:
+        graph: Input temporal graph
+        adj: Precomputed temporal adjacency structure
+        aggregation_fn: Function(node_feat, neighbor_feats, time_deltas) -> aggregated
+        num_neighbors: Number of neighbors to sample
+        time_encoding_dim: Dimension for time encoding
+        
+    Returns:
+        aggregated_features: [num_nodes, feat_dim] aggregated node features
+    """
+    num_nodes = graph.nodes.shape[0]
+    node_indices = jnp.arange(num_nodes)
+    
+    # Sample neighbors for all nodes
+    neighbor_nodes, neighbor_edges, neighbor_times = sample_temporal_neighbors(
+        adj,
+        node_indices,
+        graph.node_times,
+        num_neighbors
+    )
+    
+    # Gather neighbor features
+    neighbor_features = graph.nodes[neighbor_nodes]  # [num_nodes, num_neighbors, feat_dim]
+    neighbor_edge_features = graph.edges[neighbor_edges]
+    
+    # Compute time deltas and encode
+    time_deltas = graph.node_times[:, jnp.newaxis] - neighbor_times
+    time_encodings = harmonic_time_encoding(time_deltas, time_encoding_dim)
+    
+    # Create mask for padding
+    mask = neighbor_nodes == 0
+    
+    # Apply aggregation (vectorized over nodes)
+    def aggregate_single(node_feat, node_time, neigh_feats, edge_feats, time_enc, m):
+        return aggregation_fn(node_feat, node_time, neigh_feats, edge_feats, time_enc, m)
+    
+    aggregated = jax.vmap(aggregate_single)(
+        graph.nodes,
+        graph.node_times,
+        neighbor_features,
+        neighbor_edge_features,
+        time_encodings,
+        mask
+    )
+    
+    return aggregated
+
+
+def temporal_message_passing(
+    graph: TemporalGraphsTuple,
+    message_fn: Callable,
+    aggregation_fn: Callable = segment_sum,
+    use_time_in_message: bool = True
+) -> TemporalGraphsTuple:
+    """
+    General temporal message passing operation.
+    Analogous to jraph's InteractionNetwork pattern.
+    
+    Args:
+        graph: Input temporal graph
+        message_fn: Computes messages from edges
+        aggregation_fn: Aggregates messages (default: segment_sum)
+        use_time_in_message: Whether to include time in messages
+        
+    Returns:
+        Updated graph with aggregated messages
+    """
+    # Compute messages
+    sender_features = graph.nodes[graph.senders]
+    receiver_features = graph.nodes[graph.receivers]
+    
+    if use_time_in_message:
+        # Include temporal context in messages
+        time_deltas = graph.node_times[graph.receivers] - graph.edge_times
+        time_encodings = harmonic_time_encoding(
+            time_deltas,
+            dim=graph.nodes.shape[-1]
+        )
+        
+        messages = message_fn(
+            sender_features,
+            receiver_features,
+            graph.edges,
+            time_encodings
+        )
+    else:
+        messages = message_fn(
+            sender_features,
+            receiver_features,
+            graph.edges
+        )
+    
+    # Aggregate messages to nodes
+    num_nodes = graph.nodes.shape[0]
+    aggregated = aggregation_fn(
+        messages,
+        graph.receivers,
+        num_segments=num_nodes
+    )
+    
+    return graph._replace(nodes=aggregated)
+
+
+# ============================================================================
+# Multi-hop Temporal Convolution (Pure Functional)
+# ============================================================================
+
+def temporal_convolution_layer(
+    graph: TemporalGraphsTuple,
+    adj: TemporalAdjacency,
+    query_nodes: jnp.ndarray,
+    query_times: jnp.ndarray,
+    aggregation_fn: Callable,
+    num_neighbors: int = 20
+) -> jnp.ndarray:
+    """
+    Single layer of temporal convolution.
+    Pure function - no state.
+    
+    Args:
+        graph: Temporal graph with current layer features
+        adj: Temporal adjacency structure
+        query_nodes: [batch] nodes to compute features for
+        query_times: [batch] query timestamps
+        aggregation_fn: Aggregation function
+        num_neighbors: Number of neighbors to sample
+        
+    Returns:
+        features: [batch, feat_dim] node features
+    """
+    # Sample neighbors
+    neighbor_nodes, neighbor_edges, neighbor_times = sample_temporal_neighbors(
+        adj,
+        query_nodes,
+        query_times,
+        num_neighbors
+    )
+    
+    # Gather features
+    query_features = graph.nodes[query_nodes]
+    neighbor_features = graph.nodes[neighbor_nodes]
+    edge_features = graph.edges[neighbor_edges]
+    
+    # Encode time
+    time_deltas = query_times[:, jnp.newaxis] - neighbor_times
+    time_encodings = harmonic_time_encoding(time_deltas, graph.nodes.shape[-1])
+    
+    # Mask for padding
+    mask = neighbor_nodes == 0
+    
+    # Aggregate
+    aggregated = jax.vmap(aggregation_fn)(
+        query_features,
+        neighbor_features,
+        edge_features,
+        time_encodings,
+        mask
+    )
+    
+    return aggregated
+
+
+def multi_hop_temporal_conv(
+    graph: TemporalGraphsTuple,
+    adj: TemporalAdjacency,
+    query_nodes: jnp.ndarray,
+    query_times: jnp.ndarray,
+    aggregation_fns: list[Callable],
+    num_neighbors: int = 20
+) -> jnp.ndarray:
+    """
+    Multi-hop temporal convolution (recursive neighborhood aggregation).
+    Pure functional implementation.
+    
+    Args:
+        graph: Input temporal graph
+        adj: Temporal adjacency
+        query_nodes: [batch] query node indices
+        query_times: [batch] query timestamps
+        aggregation_fns: List of aggregation functions (one per layer)
+        num_neighbors: Neighbors per hop
+        
+    Returns:
+        embeddings: [batch, feat_dim] final node embeddings
+    """
+    num_layers = len(aggregation_fns)
+    
+    def recursive_conv(layer_idx, curr_nodes, curr_times):
+        """Recursively compute features at each layer."""
+        if layer_idx == 0:
+            # Base case: return raw features
+            return graph.nodes[curr_nodes]
+        
+        # Sample neighbors
+        neighbor_nodes, neighbor_edges, neighbor_times = sample_temporal_neighbors(
+            adj, curr_nodes, curr_times, num_neighbors
+        )
+        
+        # Recursively get neighbor features from previous layer
+        batch_size = len(curr_nodes)
+        neighbor_nodes_flat = neighbor_nodes.reshape(-1)
+        neighbor_times_flat = neighbor_times.reshape(-1)
+        
+        neighbor_features = recursive_conv(
+            layer_idx - 1,
+            neighbor_nodes_flat,
+            neighbor_times_flat
+        )
+        neighbor_features = neighbor_features.reshape(
+            batch_size, num_neighbors, -1
+        )
+        
+        # Get current node features
+        curr_features = recursive_conv(layer_idx - 1, curr_nodes, curr_times)
+        
+        # Gather edge features and encode time
+        edge_features = graph.edges[neighbor_edges]
+        time_deltas = curr_times[:, jnp.newaxis] - neighbor_times
+        time_encodings = harmonic_time_encoding(time_deltas, graph.nodes.shape[-1])
+        
+        # Aggregate
+        mask = neighbor_nodes == 0
+        aggregation_fn = aggregation_fns[layer_idx - 1]
+        
+        aggregated = jax.vmap(aggregation_fn)(
+            curr_features,
+            neighbor_features,
+            edge_features,
+            time_encodings,
+            mask
+        )
+        
+        return aggregated
+    
+    return recursive_conv(num_layers, query_nodes, query_times)
+
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+def temporal_batch(graphs: list[TemporalGraphsTuple]) -> TemporalGraphsTuple:
+    """
+    Batch multiple temporal graphs (extends jraph.batch).
+    """
+    # Use jraph's batch for base GraphsTuple fields
+    base_batched = batch([g._replace(node_times=None, edge_times=None) for g in graphs])
+    
+    # Concatenate temporal fields
+    node_times = jnp.concatenate([g.node_times for g in graphs])
+    edge_times = jnp.concatenate([g.edge_times for g in graphs])
+    
+    return TemporalGraphsTuple(
+        nodes=base_batched.nodes,
+        edges=base_batched.edges,
+        receivers=base_batched.receivers,
+        senders=base_batched.senders,
+        globals=base_batched.globals,
+        n_node=base_batched.n_node,
+        n_edge=base_batched.n_edge,
+        node_times=node_times,
+        edge_times=edge_times
+    )
+
+
+def create_temporal_graph_from_events(
+    node_features: jnp.ndarray,
+    edge_features: jnp.ndarray,
+    events: list[tuple[int, int, float, int]],  # (src, dst, time, edge_id)
+) -> TemporalGraphsTuple:
+    """
+    Create TemporalGraphsTuple from event stream.
+    Pure function - deterministic construction.
+    """
+    num_nodes = node_features.shape[0]
+    
+    senders = jnp.array([e[0] for e in events])
+    receivers = jnp.array([e[1] for e in events])
+    edge_times = jnp.array([e[2] for e in events])
+    edge_indices = jnp.array([e[3] for e in events])
+    
+    # Compute node times (last interaction)
+    node_times = jnp.zeros(num_nodes)
+    for src, dst, time, _ in events:
+        node_times = node_times.at[src].set(jnp.maximum(node_times[src], time))
+        node_times = node_times.at[dst].set(jnp.maximum(node_times[dst], time))
+    
+    return TemporalGraphsTuple(
+        nodes=node_features,
+        edges=edge_features[edge_indices],
+        senders=senders,
+        receivers=receivers,
+        globals=None,
+        n_node=jnp.array([num_nodes]),
+        n_edge=jnp.array([len(events)]),
+        node_times=node_times,
+        edge_times=edge_times
+    )
+
+
+# ============================================================================
+# Example Usage (Framework Agnostic)
+# ============================================================================
+
+def simple_attention_aggregation(
+    query_feat: jnp.ndarray,
+    neighbor_feats: jnp.ndarray,
+    edge_feats: jnp.ndarray,
+    time_encodings: jnp.ndarray,
+    mask: jnp.ndarray
+) -> jnp.ndarray:
+    """
+    Simple attention-based aggregation (no learnable parameters).
+    Pure function using only JAX operations.
+    """
+    # Combine features
+    combined = jnp.concatenate([neighbor_feats, edge_feats, time_encodings], axis=-1)
+    
+    # Simple dot-product attention
+    query_expanded = jnp.expand_dims(query_feat, 0)
+    scores = jnp.sum(combined * query_expanded, axis=-1)
+    
+    # Mask and normalize
+    scores = jnp.where(mask, -1e10, scores)
+    attn_weights = jax.nn.softmax(scores)
+    
+    # Aggregate
+    aggregated = jnp.sum(
+        neighbor_feats * attn_weights[:, jnp.newaxis],
+        axis=0
+    )
+    
+    return aggregated

@@ -1,6 +1,6 @@
 :github_url: https://github.com/syedzayyan/jraphzzz/tree/master/docs
 
-Welcome to Jraph's documentation!
+Welcome to Jraphzzz's documentation!
 =================================
 
 Jraphzzz (pronounced "giraffe is sleeping") is a lightweight library for working with graph
